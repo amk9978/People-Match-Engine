@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  redis:
+    image: bitnami/redis:latest
+    container_name: match_engine_redis
+    network_mode: host
+    environment:
+      - ALLOW_EMPTY_PASSWORD=yes
+      - REDIS_PORT_NUMBER=6379
+    volumes:
+      - redis_data:/bitnami/redis/data
+    restart: unless-stopped
+
+volumes:
+  redis_data:
+    driver: local

@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Graph Matcher - Real-time Analysis</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 2px 20px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #2c3e50;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .upload-area {
+            border: 3px dashed #3498db;
+            border-radius: 12px;
+            padding: 40px;
+            text-align: center;
+            margin-bottom: 20px;
+            transition: all 0.3s;
+        }
+        .upload-area:hover {
+            border-color: #2980b9;
+            background: #f8f9fa;
+        }
+        .upload-area.dragover {
+            border-color: #27ae60;
+            background: #e8f5e8;
+        }
+        input[type="file"] {
+            display: none;
+        }
+        .btn {
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: all 0.3s;
+        }
+        .btn:hover {
+            background: #2980b9;
+            transform: translateY(-1px);
+        }
+        .btn:disabled {
+            background: #bdc3c7;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .status {
+            margin: 20px 0;
+            padding: 15px;
+            border-radius: 8px;
+            font-weight: 500;
+        }
+        .status.connected {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .status.disconnected {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .status.processing {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+        .log {
+            background: #2c3e50;
+            color: #ecf0f1;
+            padding: 20px;
+            border-radius: 8px;
+            height: 300px;
+            overflow-y: auto;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 14px;
+            margin-top: 20px;
+        }
+        .log-entry {
+            margin-bottom: 8px;
+            display: flex;
+            align-items: flex-start;
+        }
+        .timestamp {
+            color: #95a5a6;
+            margin-right: 10px;
+            font-size: 12px;
+            min-width: 60px;
+        }
+        .result {
+            background: #e8f5e8;
+            border: 1px solid #27ae60;
+            border-radius: 8px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+        .result h3 {
+            color: #27ae60;
+            margin-top: 0;
+        }
+        .person {
+            background: white;
+            padding: 12px;
+            margin: 8px 0;
+            border-radius: 6px;
+            border-left: 4px solid #3498db;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔗 Graph Matcher - Real-time Analysis</h1>
+        
+        <div class="status disconnected" id="connectionStatus">
+            🔌 Disconnected from WebSocket
+        </div>
+
+        <div class="upload-area" id="uploadArea">
+            <div>
+                <h3>📊 Upload CSV File</h3>
+                <p>Drag and drop your CSV file here or click to select</p>
+                <input type="file" id="fileInput" accept=".csv">
+                <button class="btn" onclick="document.getElementById('fileInput').click()">
+                    Choose File
+                </button>
+            </div>
+        </div>
+
+        <div style="margin: 20px 0;">
+            <label>Min Density: </label>
+            <input type="number" id="minDensity" value="0.3" step="0.1" min="0" max="1" style="padding: 8px; border-radius: 4px; border: 1px solid #ddd;">
+            <button class="btn" id="analyzeBtn" onclick="startAnalysis()" disabled style="margin-left: 10px;">
+                🚀 Start Analysis
+            </button>
+        </div>
+
+        <div class="log" id="log">
+            <div class="log-entry">
+                <span class="timestamp">00:00</span>
+                <span>📡 Waiting for WebSocket connection...</span>
+            </div>
+        </div>
+
+        <div id="result" style="display: none;">
+        </div>
+    </div>
+
+    <script>
+        let websocket = null;
+        let selectedFile = null;
+        let currentJobId = null;
+        
+        // Initialize WebSocket connection
+        function connectWebSocket() {
+            const clientId = 'web_client_' + Math.random().toString(36).substr(2, 9);
+            const wsUrl = `ws://localhost:8000/ws/${clientId}`;
+            
+            websocket = new WebSocket(wsUrl);
+            
+            websocket.onopen = function() {
+                updateConnectionStatus(true);
+                logMessage('🔗 WebSocket connected successfully!');
+            };
+            
+            websocket.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                handleWebSocketMessage(data);
+            };
+            
+            websocket.onclose = function() {
+                updateConnectionStatus(false);
+                logMessage('🔌 WebSocket connection closed');
+                // Attempt to reconnect after 3 seconds
+                setTimeout(connectWebSocket, 3000);
+            };
+            
+            websocket.onerror = function(error) {
+                logMessage('❌ WebSocket error: ' + error);
+            };
+        }
+        
+        function updateConnectionStatus(connected) {
+            const status = document.getElementById('connectionStatus');
+            if (connected) {
+                status.className = 'status connected';
+                status.textContent = '🔗 Connected to WebSocket';
+                document.getElementById('analyzeBtn').disabled = !selectedFile;
+            } else {
+                status.className = 'status disconnected';
+                status.textContent = '🔌 Disconnected from WebSocket';
+                document.getElementById('analyzeBtn').disabled = true;
+            }
+        }
+        
+        function handleWebSocketMessage(data) {
+            if (data.type === 'job_update') {
+                const jobId = data.job_id.substring(0, 8);
+                const status = data.status;
+                const progress = data.progress || '';
+                
+                if (status === 'processing') {
+                    logMessage(`🔄 Job ${jobId}... | ${progress}`);
+                    document.getElementById('connectionStatus').className = 'status processing';
+                    document.getElementById('connectionStatus').textContent = `⏳ ${progress}`;
+                } else if (status === 'completed') {
+                    logMessage(`✅ Job ${jobId}... | Analysis completed!`);
+                    document.getElementById('connectionStatus').className = 'status connected';
+                    document.getElementById('connectionStatus').textContent = '🔗 Connected to WebSocket';
+                    
+                    if (data.result) {
+                        showResult(data.result);
+                    }
+                } else if (status === 'failed') {
+                    logMessage(`❌ Job ${jobId}... | Error: ${data.error}`);
+                    document.getElementById('connectionStatus').className = 'status disconnected';
+                    document.getElementById('connectionStatus').textContent = '❌ Analysis failed';
+                }
+            }
+        }
+        
+        function logMessage(message) {
+            const log = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            
+            const timestamp = new Date().toLocaleTimeString().substring(0, 5);
+            entry.innerHTML = `
+                <span class="timestamp">${timestamp}</span>
+                <span>${message}</span>
+            `;
+            
+            log.appendChild(entry);
+            log.scrollTop = log.scrollHeight;
+        }
+        
+        function showResult(result) {
+            const resultDiv = document.getElementById('result');
+            let html = `
+                <div class="result">
+                    <h3>🎯 Analysis Results</h3>
+                    <p><strong>Subgraph Size:</strong> ${result.size} people</p>
+                    <p><strong>Density:</strong> ${result.density.toFixed(4)}</p>
+                    
+                    <h4>👥 People in Dense Subgraph:</h4>
+            `;
+            
+            result.people.forEach(person => {
+                html += `
+                    <div class="person">
+                        <strong>${person.name}</strong> - ${person.title}<br>
+                        <em>${person.company}</em>
+                    </div>
+                `;
+            });
+            
+            if (result.expansion_recommendations) {
+                html += `<h4>💡 Expansion Recommendations:</h4>`;
+                result.expansion_recommendations.forEach(rec => {
+                    html += `
+                        <div class="person">
+                            <strong>${rec.name}</strong> - ${rec.title}<br>
+                            <em>${rec.company}</em> (Score: ${rec.similarity_score.toFixed(3)})
+                        </div>
+                    `;
+                });
+            }
+            
+            html += '</div>';
+            resultDiv.innerHTML = html;
+            resultDiv.style.display = 'block';
+        }
+        
+        async function startAnalysis() {
+            if (!selectedFile || !websocket || websocket.readyState !== WebSocket.OPEN) {
+                alert('Please select a file and ensure WebSocket is connected');
+                return;
+            }
+            
+            const formData = new FormData();
+            formData.append('file', selectedFile);
+            formData.append('min_density', document.getElementById('minDensity').value);
+            
+            try {
+                logMessage('🚀 Starting analysis...');
+                const response = await fetch('http://localhost:8000/analyze', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                currentJobId = result.job_id;
+                logMessage(`✅ Analysis queued! Job ID: ${result.job_id.substring(0, 8)}...`);
+                
+            } catch (error) {
+                logMessage('❌ Error starting analysis: ' + error.message);
+            }
+        }
+        
+        // File handling
+        const fileInput = document.getElementById('fileInput');
+        const uploadArea = document.getElementById('uploadArea');
+        
+        fileInput.addEventListener('change', function(e) {
+            selectedFile = e.target.files[0];
+            if (selectedFile) {
+                uploadArea.innerHTML = `
+                    <div>
+                        <h3>📁 ${selectedFile.name}</h3>
+                        <p>Ready to analyze (${(selectedFile.size / 1024).toFixed(1)} KB)</p>
+                        <button class="btn" onclick="document.getElementById('fileInput').click()">
+                            Change File
+                        </button>
+                    </div>
+                `;
+                document.getElementById('analyzeBtn').disabled = !websocket || websocket.readyState !== WebSocket.OPEN;
+            }
+        });
+        
+        // Drag and drop
+        uploadArea.addEventListener('dragover', function(e) {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+        
+        uploadArea.addEventListener('dragleave', function(e) {
+            uploadArea.classList.remove('dragover');
+        });
+        
+        uploadArea.addEventListener('drop', function(e) {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                fileInput.files = files;
+                fileInput.dispatchEvent(new Event('change'));
+            }
+        });
+        
+        // Initialize
+        connectWebSocket();
+    </script>
+</body>
+</html>
