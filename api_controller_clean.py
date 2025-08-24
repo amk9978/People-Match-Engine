@@ -75,15 +75,22 @@ async def analyze_csv(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     min_density: Optional[float] = None,
+    prompt: Optional[str] = None,
 ):
-    """Upload CSV file and start graph analysis"""
+    """Upload CSV file and start graph analysis with optional hyperparameter tuning
+
+    Parameters:
+    - file: CSV file with professional data
+    - min_density: Minimum density threshold for subgraph extraction
+    - prompt: Optional user intent to tune hyperparameters (e.g., "I want to hire for my startup", "I need peer networking", "I want business partnerships")
+    """
     if not file_service.validate_csv_file(file.filename):
         raise HTTPException(status_code=400, detail="File must be a CSV")
 
     try:
         temp_path = await file_service.save_uploaded_file(file)
 
-        job_id = analysis_service.create_job(file.filename, min_density)
+        job_id = analysis_service.create_job(file.filename, min_density, prompt)
 
         background_tasks.add_task(
             analysis_service.run_analysis,
@@ -91,6 +98,7 @@ async def analyze_csv(
             temp_path,
             notification_service,
             min_density,
+            prompt,
         )
 
         return AnalysisResponse(
