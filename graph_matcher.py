@@ -33,14 +33,74 @@ class GraphMatcher:
         self.person_deduplicator = SemanticPersonDeduplicator()
 
     def load_data(self) -> pd.DataFrame:
-        """Load and preprocess the dataset"""
+        """Load and preprocess the dataset with row filtering"""
         self.df = pd.read_csv(self.csv_path)
-        print(f"Loaded {len(self.df)} people from dataset")
+        original_count = len(self.df)
+        print(f"Loaded {original_count} people from dataset")
+        
+        # Filter out rows with empty essential columns
+        self.df = self.filter_incomplete_rows(self.df)
+        filtered_count = len(self.df)
+        
+        if filtered_count < original_count:
+            removed_count = original_count - filtered_count
+            print(f"🗑️ Filtered out {removed_count} rows with missing essential data")
+            print(f"📊 Using {filtered_count} complete rows for analysis")
+        
         return self.df
+    
+    def filter_incomplete_rows(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Filter out rows with empty essential columns"""
+        
+        # Define essential columns that must be non-empty
+        essential_columns = [
+            "Person Name",
+            "Person Title", 
+            "Person Company",
+            "Person Linkedin URL",  # LinkedIn URL is essential
+            "Professional Identity - Role Specification",
+            "Professional Identity - Experience Level",
+            "Company Identity - Industry Classification",
+            "Company Market - Market Traction",
+            "Company Offering - Value Proposition",
+            "All Persona Titles"
+        ]
+        
+        # Check which essential columns exist in the dataset
+        existing_columns = [col for col in essential_columns if col in df.columns]
+        missing_columns = [col for col in essential_columns if col not in df.columns]
+        
+        if missing_columns:
+            print(f"⚠️ Warning: Missing columns in dataset: {missing_columns}")
+        
+        # Filter rows where any essential column is empty/NaN
+        initial_count = len(df)
+        
+        # Create a mask for rows that have non-empty values in all essential columns
+        mask = pd.Series([True] * len(df), index=df.index)
+        
+        for column in existing_columns:
+            # Check for NaN, empty strings, or whitespace-only strings
+            column_mask = (
+                df[column].notna() & 
+                (df[column].astype(str).str.strip() != '') &
+                (df[column].astype(str).str.strip() != 'nan')
+            )
+            mask = mask & column_mask
+            
+            # Show which rows would be filtered by this column
+            filtered_by_column = (~column_mask).sum()
+            if filtered_by_column > 0:
+                print(f"   • {column}: {filtered_by_column} rows have empty/missing values")
+        
+        # Apply the filter
+        filtered_df = df[mask].copy()
+        
+        return filtered_df
 
     async def preprocess_tags(
         self,
-        similarity_threshold: float = 0.85,
+        similarity_threshold: float = 0.7,
         fuzzy_threshold: float = 0.90,
         force_rebuild: bool = False,
     ) -> Dict[str, any]:
@@ -70,6 +130,7 @@ class GraphMatcher:
     async def extract_and_deduplicate_tags(self, text: str, category: str) -> List[str]:
         """Extract tags and apply semantic deduplication for any feature category"""
         raw_tags = tag_extractor.extract_tags(text, category)
+        return raw_tags
 
         # Apply semantic person-level deduplication (preserves distinct roles)
         return await self.person_deduplicator.apply_semantic_deduplication(
@@ -223,13 +284,24 @@ class GraphMatcher:
 
         return feature_embeddings
 
-    def create_graph(self, feature_embeddings: Dict[str, np.ndarray]) -> nx.Graph:
-        """Create a weighted graph with hybrid professional similarity + business complementarity"""
-        print(
-            "Creating hybrid similarity graph (professional similarity + business complementarity)..."
-        )
+    async def create_graph(self, feature_embeddings: Dict[str, np.ndarray]) -> nx.Graph:
+        """Create a weighted graph using optimized 5-component hybrid equation"""
+        
+        # Check if FAISS optimization is enabled
+        use_faiss = os.getenv("USE_FAISS_OPTIMIZATION", "false").lower() == "true"
+        
+        if use_faiss:
+            print("🚀 Using FAISS-optimized graph creation...")
+            return await self.create_graph_faiss(feature_embeddings)
+        else:
+            print("⚡ Using optimized 5-component hybrid similarity graph...")
+            return await self.create_graph_optimized(feature_embeddings)
 
+    async def create_graph_optimized(self, feature_embeddings: Dict[str, np.ndarray]) -> nx.Graph:
+        """Optimized graph creation with precomputed similarities and tags"""
+        
         self.graph = nx.Graph()
+        num_people = len(self.df)
 
         # Add nodes (people)
         for idx, row in self.df.iterrows():
@@ -237,125 +309,107 @@ class GraphMatcher:
                 idx, name=row["Person Name"], company=row["Person Company"]
             )
 
-        # Load causal relationship graph
+        # Load/build all complementarity matrices
         if not self.causal_analyzer.load_causal_graph_from_redis():
-            print(
-                "Warning: No causal relationship graph found in Redis. Building first..."
-            )
-            print("Run: python causal_relationship_analyzer.py")
-            print("Falling back to traditional similarity calculation...")
-            return self.create_graph_traditional(feature_embeddings)
+            print("🔧 Business complementarity matrix not found. Building automatically...")
+            try:
+                await self.causal_analyzer.build_causal_relationship_graph(self.csv_path)
+                print("✅ Business complementarity matrix built and cached")
+            except Exception as e:
+                print(f"⚠️ Error building business matrix: {e}")
+                print("Falling back to traditional similarity calculation...")
+                return await self.create_graph_traditional(feature_embeddings)
 
-        # Load persona complementarity matrix
-        if not self.causal_analyzer.load_persona_matrix_from_redis():
-            print(
-                "Warning: No persona complementarity matrix found. Persona complementarity will use fallback."
-            )
-            # Continue anyway - we can still use other components
+        if not self.causal_analyzer.load_experience_matrix_from_redis():
+            print("🔧 Experience complementarity matrix not found. Building automatically...")
+            try:
+                await self.causal_analyzer.build_experience_complementarity_matrix(self.csv_path)
+                print("✅ Experience complementarity matrix built and cached")
+            except Exception as e:
+                print(f"⚠️ Using embedding-based experience complementarity fallback")
 
-        num_people = len(self.df)
+        # Get hyperparameters from environment
+        role_weight = float(os.getenv("ROLE_SIMILARITY_WEIGHT", "0.30"))
+        exp_sim_weight = float(os.getenv("EXPERIENCE_SIMILARITY_WEIGHT", "0.15"))
+        exp_comp_weight = float(os.getenv("EXPERIENCE_COMPLEMENTARITY_WEIGHT", "0.15"))
+        business_comp_weight = float(os.getenv("BUSINESS_COMPLEMENTARITY_WEIGHT", "0.25"))
+        persona_comp_weight = float(os.getenv("PERSONA_COMPLEMENTARITY_WEIGHT", "0.15"))
 
-        # Calculate PROFESSIONAL similarities (homophily - similar people connect)
-        professional_features = ["role_spec", "experience", "personas"]
-        professional_similarities = {}
+        print(f"📊 Using 5-component equation weights:")
+        print(f"   Role Similarity: {role_weight:+.2f}")
+        print(f"   Experience Similarity: {exp_sim_weight:+.2f}")
+        print(f"   Experience Complementarity: {exp_comp_weight:+.2f}")
+        print(f"   Business Complementarity: {business_comp_weight:+.2f}")
+        print(f"   Persona Complementarity: {persona_comp_weight:+.2f}")
+        print(f"   Total: {role_weight + exp_sim_weight + exp_comp_weight + business_comp_weight + persona_comp_weight:.2f}")
 
-        for feature_name in professional_features:
-            if feature_name in feature_embeddings:
-                similarity_matrix = cosine_similarity(feature_embeddings[feature_name])
-                professional_similarities[feature_name] = similarity_matrix
-                print(f"Calculated {feature_name} professional similarities")
+        # OPTIMIZATION 1: Precompute similarity matrices once
+        print("⚡ Precomputing similarity matrices...")
+        role_sim_matrix = None
+        exp_sim_matrix = None
+        
+        if "role_spec" in feature_embeddings:
+            role_sim_matrix = cosine_similarity(feature_embeddings["role_spec"])
+        
+        if "experience" in feature_embeddings:
+            exp_sim_matrix = cosine_similarity(feature_embeddings["experience"])
 
-        # Professional similarity weights (should sum to 1.0)
-        professional_weights = {
-            "role_spec": 0.5,  # Role is most important for professional chemistry
-            "experience": 0.35,  # Experience level compatibility
-            "personas": 0.15,  # Personas add context
-        }
+        # OPTIMIZATION 2: Precompute all person tags once
+        print("⚡ Precomputing person tags...")
+        person_tags_cache = {}
+        for idx, row in self.df.iterrows():
+            person_tags_cache[idx] = {
+                'experience': self.extract_tags(row.get("Professional Identity - Experience Level", "")),
+                'personas': self.extract_tags(row.get("All Persona Titles", "")),
+                'business': None  # Will compute async below
+            }
+        
+        # Precompute business tags (async)
+        print("⚡ Precomputing business tags...")
+        for idx, row in self.df.iterrows():
+            person_tags_cache[idx]['business'] = await self.extract_business_tags_for_person(row)
 
-        # Calculate hybrid similarities
+        # OPTIMIZATION 3: Vectorized edge calculation with early termination
+        print(f"⚡ Computing {num_people * (num_people - 1) // 2} pairwise similarities...")
+        edges_added = 0
+        
         for i in range(num_people):
             for j in range(i + 1, num_people):
-
-                # 1. PROFESSIONAL SIMILARITY (homophily)
-                professional_score = 0.0
-                for feature_name, weight in professional_weights.items():
-                    if feature_name in professional_similarities:
-                        feature_sim = professional_similarities[feature_name][i][j]
-                        professional_score += weight * feature_sim
-
-                # 2. BUSINESS COMPLEMENTARITY (from causal relationships)
-                person1_business_tags = self.extract_business_tags_for_person(
-                    self.df.iloc[i]
+                
+                # Component 1: Role Similarity (precomputed matrix)
+                role_similarity = role_sim_matrix[i][j] if role_sim_matrix is not None else 0.0
+                
+                # Component 2: Experience Similarity (precomputed matrix)  
+                experience_similarity = exp_sim_matrix[i][j] if exp_sim_matrix is not None else 0.0
+                
+                # Component 3: Experience Complementarity (cached tags)
+                experience_complementarity = await self.causal_analyzer.calculate_experience_complementarity_fast(
+                    person_tags_cache[i]['experience'], person_tags_cache[j]['experience']
                 )
-                person2_business_tags = self.extract_business_tags_for_person(
-                    self.df.iloc[j]
+                
+                # Component 4: Business Complementarity (cached tags)
+                business_complementarity = self.causal_analyzer.calculate_business_complementarity_fast(
+                    person_tags_cache[i]['business'], person_tags_cache[j]['business']
                 )
-
-                business_complementarity = (
-                    self.causal_analyzer.calculate_business_complementarity_fast(
-                        person1_business_tags, person2_business_tags
-                    )
-                )
-
-                # 3. EXPERIENCE SIMILARITY (peer-level networking)
-                experience_similarity = 0.0
-                if "experience" in feature_embeddings:
-                    experience_similarity = cosine_similarity(
-                        feature_embeddings["experience"]
-                    )[i][j]
-
-                # 4. EXPERIENCE COMPLEMENTARITY (senior-junior mentorship)
-                experience_complementarity = 1.0 - experience_similarity
-
-                # 4. PERSONA COMPLEMENTARITY (ChatGPT-based strategic complementarity)
-                person1_personas = self.extract_tags(
-                    self.df.iloc[i].get("All Persona Titles", "")
-                )
-                person2_personas = self.extract_tags(
-                    self.df.iloc[j].get("All Persona Titles", "")
-                )
-                persona_complementarity = (
-                    self.causal_analyzer.calculate_persona_complementarity_fast(
-                        person1_personas, person2_personas
-                    )
+                
+                # Component 5: Persona Complementarity (cached tags)
+                persona_complementarity = await self.causal_analyzer.calculate_persona_complementarity_fast(
+                    person_tags_cache[i]['personas'], person_tags_cache[j]['personas']
                 )
 
-                # 5. EXPANDED HYBRID SCORE (5 components with both experience similarity and complementarity)
-                role_weight = float(os.getenv("ROLE_SIMILARITY_WEIGHT", "0.30"))
-                exp_sim_weight = float(
-                    os.getenv("EXPERIENCE_SIMILARITY_WEIGHT", "0.15")
-                )
-                exp_comp_weight = float(
-                    os.getenv("EXPERIENCE_COMPLEMENTARITY_WEIGHT", "0.15")
-                )
-                business_comp_weight = float(
-                    os.getenv("BUSINESS_COMPLEMENTARITY_WEIGHT", "0.25")
-                )
-                persona_comp_weight = float(
-                    os.getenv("PERSONA_COMPLEMENTARITY_WEIGHT", "0.15")
-                )
-
-                # Role similarity from professional_score (weighted by role_spec component)
-                role_similarity = professional_score * (
-                    professional_weights.get("role_spec", 0.5)
-                    / sum(professional_weights.values())
-                )
-
+                # SINGLE 5-COMPONENT HYBRID EQUATION
                 hybrid_similarity = (
-                    role_weight * role_similarity
-                    + exp_sim_weight * experience_similarity
-                    + exp_comp_weight * experience_complementarity
-                    + business_comp_weight * business_complementarity
-                    + persona_comp_weight * persona_complementarity
+                    role_weight * role_similarity +
+                    exp_sim_weight * experience_similarity +
+                    exp_comp_weight * experience_complementarity +
+                    business_comp_weight * business_complementarity +
+                    persona_comp_weight * persona_complementarity
                 )
 
                 # Only add edges above threshold
-                if (
-                    hybrid_similarity > 0.1
-                ):  # Lowered threshold since we now have complementarity
+                if hybrid_similarity > 0.1:
                     self.graph.add_edge(
-                        i,
-                        j,
+                        i, j,
                         weight=hybrid_similarity,
                         role_similarity=role_similarity,
                         experience_similarity=experience_similarity,
@@ -363,17 +417,15 @@ class GraphMatcher:
                         business_complementarity=business_complementarity,
                         persona_complementarity=persona_complementarity,
                     )
+                    edges_added += 1
 
-        print(
-            f"Created hybrid graph with {self.graph.number_of_nodes()} nodes and {self.graph.number_of_edges()} edges"
-        )
-        print(
-            "Hybrid weights: 70% professional similarity + 30% business complementarity"
-        )
-        print(f"Professional weights: {professional_weights}")
+        print(f"✅ Created optimized 5-component hybrid graph:")
+        print(f"   Nodes: {self.graph.number_of_nodes()}")
+        print(f"   Edges: {edges_added}")
+        print(f"   Density: {edges_added / (num_people * (num_people - 1) // 2) * 100:.1f}%")
         return self.graph
 
-    def create_graph_traditional(
+    async def create_graph_traditional(
         self, feature_embeddings: Dict[str, np.ndarray]
     ) -> nx.Graph:
         """Fallback: Create traditional similarity-only graph"""
@@ -423,7 +475,7 @@ class GraphMatcher:
                     self.df.iloc[j].get("All Persona Titles", "")
                 )
                 persona_complementarity = (
-                    self.causal_analyzer.calculate_persona_complementarity_fast(
+                    await self.causal_analyzer.calculate_persona_complementarity_fast(
                         person1_personas, person2_personas
                     )
                 )
@@ -648,10 +700,75 @@ class GraphMatcher:
         tag_similarities.sort(key=lambda x: x[1], reverse=True)
         return tag_similarities
 
+    def find_subgroups_in_subgraph(self, nodes: Set[int], min_subgroup_size: int = 3) -> List[Dict]:
+        """Find cohesive subgroups within the dense subgraph using edge weights"""
+        if len(nodes) < min_subgroup_size * 2:
+            return []
+            
+        subgraph = self.graph.subgraph(nodes)
+        
+        # Use Louvain community detection for clustering
+        try:
+            communities = nx.community.louvain_communities(subgraph, weight='weight', resolution=1.2)
+        except:
+            # Fallback to greedy modularity if Louvain fails
+            communities = nx.community.greedy_modularity_communities(subgraph, weight='weight')
+        
+        subgroups = []
+        
+        for i, community in enumerate(communities):
+            if len(community) >= min_subgroup_size:
+                # Calculate internal density and average weight
+                community_subgraph = subgraph.subgraph(community)
+                
+                total_weight = 0
+                edge_count = 0
+                max_weight = 0
+                min_weight = float('inf')
+                
+                for u, v, data in community_subgraph.edges(data=True):
+                    weight = data.get('weight', 0)
+                    total_weight += weight
+                    edge_count += 1
+                    max_weight = max(max_weight, weight)
+                    min_weight = min(min_weight, weight)
+                
+                avg_internal_weight = total_weight / edge_count if edge_count > 0 else 0
+                
+                # Calculate density specifically for this subgroup
+                possible_edges = len(community) * (len(community) - 1) / 2
+                internal_density = edge_count / possible_edges if possible_edges > 0 else 0
+                
+                # Get representative people from this subgroup
+                people_in_subgroup = []
+                for node in list(community)[:5]:  # Show up to 5 people
+                    row = self.df.iloc[node]
+                    people_in_subgroup.append({
+                        "name": row["Person Name"],
+                        "title": row["Person Title"], 
+                        "company": row["Person Company"]
+                    })
+                
+                subgroups.append({
+                    "subgroup_id": i + 1,
+                    "size": len(community),
+                    "internal_density": internal_density,
+                    "avg_connection_strength": avg_internal_weight,
+                    "strongest_connection": max_weight if edge_count > 0 else 0,
+                    "weakest_connection": min_weight if edge_count > 0 and min_weight != float('inf') else 0,
+                    "total_internal_edges": edge_count,
+                    "sample_people": people_in_subgroup
+                })
+        
+        # Sort by connection strength (descending)
+        subgroups.sort(key=lambda x: x["avg_connection_strength"], reverse=True)
+        
+        return subgroups
+
     def get_subgraph_info(
         self, nodes: Set[int], feature_embeddings: Dict[str, np.ndarray] = None
     ) -> Dict:
-        """Get detailed information about a subgraph including centroid insights"""
+        """Get detailed information about a subgraph including centroid insights and subgroups"""
         if not nodes:
             return {}
 
@@ -679,6 +796,17 @@ class GraphMatcher:
             )
             result["centroid_insights"] = centroid_insights
 
+        # Add subgroup analysis
+        subgroups = self.find_subgroups_in_subgraph(nodes)
+        if subgroups:
+            result["subgroups"] = subgroups
+            result["subgroup_summary"] = {
+                "total_subgroups": len(subgroups),
+                "strongest_subgroup_strength": subgroups[0]["avg_connection_strength"] if subgroups else 0,
+                "largest_subgroup_size": max(sg["size"] for sg in subgroups) if subgroups else 0,
+                "avg_subgroup_density": sum(sg["internal_density"] for sg in subgroups) / len(subgroups) if subgroups else 0
+            }
+
         return result
 
     async def run_analysis(self) -> Dict:
@@ -697,7 +825,7 @@ class GraphMatcher:
         feature_embeddings = await self.embed_features()
 
         # Step 4: Create hybrid similarity graph
-        self.create_graph(feature_embeddings)
+        await self.create_graph(feature_embeddings)
 
         largest_dense_nodes, density = self.find_largest_dense_subgraph()
 
@@ -715,6 +843,24 @@ class GraphMatcher:
                 print(f"\n📊 {feature_name.upper()}:")
                 for tag, similarity in insights["closest_tags"]:
                     print(f"  • {tag:<50} (similarity: {similarity:.3f})")
+
+        # Display subgroup analysis
+        if "subgroups" in result:
+            print(f"\n🔍 SUBGROUP ANALYSIS - Cohesive Clusters within Dense Subgraph:")
+            print("=" * 70)
+            summary = result["subgroup_summary"]
+            print(f"Found {summary['total_subgroups']} cohesive subgroups")
+            print(f"Strongest subgroup connection strength: {summary['strongest_subgroup_strength']:.3f}")
+            print(f"Average subgroup density: {summary['avg_subgroup_density']:.3f}")
+            
+            for i, subgroup in enumerate(result["subgroups"][:5], 1):  # Show top 5 subgroups
+                print(f"\n🔸 Subgroup {subgroup['subgroup_id']} ({subgroup['size']} people):")
+                print(f"   Connection Strength: {subgroup['avg_connection_strength']:.3f}")
+                print(f"   Internal Density: {subgroup['internal_density']:.3f}")
+                print(f"   Strongest Connection: {subgroup['strongest_connection']:.3f}")
+                print("   Sample Members:")
+                for person in subgroup["sample_people"][:3]:
+                    print(f"     • {person['name']} ({person['title']} at {person['company']})")
 
         recommendations = self.get_expansion_recommendations(
             largest_dense_nodes, feature_embeddings
@@ -780,10 +926,12 @@ class GraphMatcher:
         candidates.sort(key=lambda x: x["similarity_score"], reverse=True)
         return candidates[:top_n]
 
-    def create_graph_faiss(
-        self, feature_embeddings: Dict[str, np.ndarray], top_k: int = 50
+    async def create_graph_faiss(
+        self, feature_embeddings: Dict[str, np.ndarray]
     ) -> nx.Graph:
-        """Create graph using FAISS for efficient similarity computation"""
+        """Create graph using FAISS for maximum performance on large datasets"""
+        
+        top_k = int(os.getenv("FAISS_TOP_K", "50"))
         print(f"🚀 Creating FAISS-optimized graph (top-{top_k} per person)...")
 
         self.graph = nx.Graph()
@@ -852,15 +1000,18 @@ class GraphMatcher:
                 exp_similarity = faiss_engine.get_exact_similarity(
                     "experience", person_i, person_j
                 )
-                experience_complementarity = 1.0 - exp_similarity
+                experience_complementarity = await self.causal_analyzer.calculate_experience_complementarity_fast(
+                    self.extract_tags(self.df.iloc[person_i].get("Professional Identity - Experience Level", "")),
+                    self.extract_tags(self.df.iloc[person_j].get("Professional Identity - Experience Level", ""))
+                )
             else:
                 experience_complementarity = 0.0
 
             # Business complementarity
-            person1_business_tags = self.extract_business_tags_for_person(
+            person1_business_tags = await self.extract_business_tags_for_person(
                 self.df.iloc[person_i]
             )
-            person2_business_tags = self.extract_business_tags_for_person(
+            person2_business_tags = await self.extract_business_tags_for_person(
                 self.df.iloc[person_j]
             )
             business_complementarity = (
@@ -877,7 +1028,7 @@ class GraphMatcher:
                 self.df.iloc[person_j].get("All Persona Titles", "")
             )
             persona_complementarity = (
-                self.causal_analyzer.calculate_persona_complementarity_fast(
+                await self.causal_analyzer.calculate_persona_complementarity_fast(
                     person1_personas, person2_personas
                 )
             )
@@ -911,7 +1062,7 @@ class GraphMatcher:
 async def main():
     # Initialize matcher
     matcher = GraphMatcher(
-        "/home/ryan/PycharmProjects/match_engine/data/test_batch2.csv"
+        "/home/ryan/PycharmProjects/match_engine/data/original.csv"
     )
 
     # Run analysis

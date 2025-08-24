@@ -2,13 +2,11 @@
 
 import asyncio
 import json
-import os
-from typing import Dict, List, Set, Tuple
+from typing import Dict, List
 
 import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
-from openai import AsyncOpenAI
 from sklearn.cluster import AgglomerativeClustering
 from sklearn.metrics.pairwise import cosine_similarity
 
@@ -24,6 +22,7 @@ class SemanticPersonDeduplicator:
 
     def __init__(self):
         self.cache = RedisEmbeddingCache()
+        self.embedding_service = embedding_service
 
     async def get_tag_embedding(self, tag: str) -> np.ndarray:
         """Get embedding using shared embedding service"""
@@ -73,7 +72,7 @@ Return ONLY the selected tag, nothing else."""
             return tag_cluster[0]
 
     async def deduplicate_person_tags_semantic(
-        self, tags: List[str], category: str, similarity_threshold: float = 0.80
+            self, tags: List[str], category: str, similarity_threshold: float = 0.80
     ) -> List[str]:
         if len(tags) <= 1:
             return tags
@@ -115,10 +114,10 @@ Return ONLY the selected tag, nothing else."""
         return deduplicated_tags
 
     async def process_dataset_semantic(
-        self, csv_path: str, similarity_threshold: float = 0.80
+            self, csv_path: str, similarity_threshold: float = 0.80
     ) -> Dict[str, Dict]:
         print(
-            f"Starting semantic person-level deduplication (threshold: {similarity_threshold})..."
+            f"Starting dataset-wide semantic deduplication (threshold: {similarity_threshold})..."
         )
 
         df = pd.read_csv(csv_path)
@@ -135,22 +134,52 @@ Return ONLY the selected tag, nothing else."""
         results = {}
 
         for category, column_name in feature_columns.items():
-            print(f"\nProcessing {category} tags...")
+            print(f"\n🔍 Processing {category} tags...")
 
+            # STEP 1: Extract all unique tags from entire dataset
+            all_unique_tags = set()
+            for idx, row in df.iterrows():
+                if pd.notna(row[column_name]):
+                    raw_tags = tag_extractor.extract_tags(row[column_name], category)
+                    all_unique_tags.update(raw_tags)
+
+            unique_tags_list = list(all_unique_tags)
+            print(f"  Found {len(unique_tags_list)} unique tags across dataset")
+
+            # STEP 2: Create global tag mapping (tag -> umbrella_tag)
+            tag_mapping = await self.create_global_tag_mapping(
+                unique_tags_list, category, similarity_threshold
+            )
+
+            mapped_count = len([k for k, v in tag_mapping.items() if k != v])
+            print(f"  Created mappings for {mapped_count} tags")
+
+            # Debug: Show sample mappings
+            sample_mappings = {k: v for k, v in tag_mapping.items() if k != v}
+            if sample_mappings:
+                print("  Sample mappings:")
+                for orig, mapped in list(sample_mappings.items())[:3]:
+                    print(f"    '{orig}' → '{mapped}'")
+            else:
+                print("  🚨 WARNING: No mappings created - all tags considered unique!")
+
+            # STEP 3: Apply mappings to dataset and track statistics
             original_tag_count = 0
             deduplicated_tag_count = 0
             person_reductions = []
+            total_mappings_applied = 0
 
             for idx, row in df.iterrows():
                 if pd.notna(row[column_name]):
                     raw_tags = tag_extractor.extract_tags(row[column_name], category)
 
-                    if len(raw_tags) > 1:
-                        deduplicated_tags = await self.deduplicate_person_tags_semantic(
-                            raw_tags, category, similarity_threshold
-                        )
-                    else:
-                        deduplicated_tags = raw_tags
+                    # Apply global mapping and track what changed
+                    mapped_tags = [tag_mapping.get(tag, tag) for tag in raw_tags]
+                    deduplicated_tags = list(set(mapped_tags))  # Remove duplicates after mapping
+
+                    # Count how many tags were actually mapped
+                    mappings_applied = sum(1 for i, tag in enumerate(raw_tags) if mapped_tags[i] != tag)
+                    total_mappings_applied += mappings_applied
 
                     original_count = len(raw_tags)
                     deduplicated_count = len(deduplicated_tags)
@@ -158,19 +187,19 @@ Return ONLY the selected tag, nothing else."""
                     original_tag_count += original_count
                     deduplicated_tag_count += deduplicated_count
 
-                    if original_count != deduplicated_count:
+                    if original_count != deduplicated_count or mappings_applied > 0:
                         person_reductions.append(
                             {
                                 "person": row.get("Person Name", f"Person_{idx}"),
                                 "original": raw_tags,
+                                "mapped": mapped_tags,
                                 "deduplicated": deduplicated_tags,
                                 "reduction": original_count - deduplicated_count,
-                                "clusters_found": len(set(deduplicated_tags)),
+                                "mappings_applied": mappings_applied
                             }
                         )
 
-                if idx % 5 == 0:
-                    print(f"  Processed {idx + 1}/{len(df)} people...")
+            print(f"  🔄 Total mappings applied: {total_mappings_applied}")
 
             reduction_count = original_tag_count - deduplicated_tag_count
             reduction_ratio = (
@@ -178,6 +207,8 @@ Return ONLY the selected tag, nothing else."""
             )
 
             results[category] = {
+                "unique_tags_found": len(unique_tags_list),
+                "tag_mappings_created": len([k for k, v in tag_mapping.items() if k != v]),
                 "original_tag_instances": original_tag_count,
                 "deduplicated_tag_instances": deduplicated_tag_count,
                 "total_reduction": reduction_count,
@@ -185,20 +216,66 @@ Return ONLY the selected tag, nothing else."""
                 "people_affected": len(person_reductions),
                 "similarity_threshold": similarity_threshold,
                 "example_reductions": person_reductions[:5],
+                "sample_mappings": dict(list({k: v for k, v in tag_mapping.items() if k != v}.items())[:10])
             }
 
-            print(f"  Original tag instances: {original_tag_count}")
-            print(f"  After deduplication: {deduplicated_tag_count}")
-            print(f"  Total reduction: {reduction_count} ({reduction_ratio:.1%})")
-            print(f"  People affected: {len(person_reductions)}")
+            print(f"  ✅ Tag instances: {original_tag_count} → {deduplicated_tag_count}")
+            print(f"  📉 Total reduction: {reduction_count} ({reduction_ratio:.1%})")
+            print(f"  👥 People affected: {len(person_reductions)}")
 
-        cache_key = f"semantic_person_dedup_{similarity_threshold}"
+        cache_key = f"semantic_dataset_dedup_{similarity_threshold}"
         self.cache.set(cache_key, json.dumps(results, default=str))
 
         return results
 
+    async def create_global_tag_mapping(
+            self, unique_tags: List[str], category: str, similarity_threshold: float
+    ) -> Dict[str, str]:
+        """Create global tag->umbrella mapping for consistent deduplication"""
+
+        # TODO:
+        # if len(unique_tags) <= 1:
+        return {tag: tag for tag in unique_tags}
+
+        # Get embeddings for all unique tags
+        embeddings = await self.embedding_service.get_batch_embeddings(unique_tags)
+
+        # Calculate similarity matrix
+        similarities = cosine_similarity(embeddings)
+
+        # Find clusters of similar tags
+        tag_mapping = {}
+        processed_tags = set()
+
+        for i, tag1 in enumerate(unique_tags):
+            if tag1 in processed_tags:
+                continue
+
+            # Find all tags similar to this one
+            similar_tags = [tag1]  # Include the tag itself
+
+            for j, tag2 in enumerate(unique_tags):
+                if i != j and tag2 not in processed_tags:
+                    if similarities[i][j] >= similarity_threshold:
+                        similar_tags.append(tag2)
+
+            if len(similar_tags) > 1:
+                # Use ChatGPT to select umbrella term for this cluster
+                umbrella_tag = await self.select_umbrella_tag(similar_tags, category)
+
+                # Map all similar tags to umbrella
+                for tag in similar_tags:
+                    tag_mapping[tag] = umbrella_tag
+                    processed_tags.add(tag)
+            else:
+                # Single tag, maps to itself
+                tag_mapping[tag1] = tag1
+                processed_tags.add(tag1)
+
+        return tag_mapping
+
     async def apply_semantic_deduplication(
-        self, tags: List[str], category: str, similarity_threshold: float = 0.80
+            self, tags: List[str], category: str, similarity_threshold: float = 0.80
     ) -> List[str]:
         """Apply semantic deduplication to a list of tags"""
         return await self.deduplicate_person_tags_semantic(
@@ -266,9 +343,9 @@ if __name__ == "__main__":
     async def main():
         # Test with different thresholds
         for threshold in [0.75, 0.80, 0.85]:
-            print(f"\n{'='*60}")
+            print(f"\n{'=' * 60}")
             print(f"TESTING THRESHOLD: {threshold}")
-            print(f"{'='*60}")
+            print(f"{'=' * 60}")
 
             deduplicator = await run_semantic_deduplication(
                 "data/batch2.csv", threshold
@@ -285,5 +362,6 @@ if __name__ == "__main__":
                 test_tags, "role_spec", threshold
             )
             print(f"\nExample clustering: {test_tags} → {result}")
+
 
     asyncio.run(main())

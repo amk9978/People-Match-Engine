@@ -6,6 +6,7 @@ import os
 from typing import Dict, List, Optional, Set, Tuple
 
 import pandas as pd
+import numpy as np
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
 
@@ -650,25 +651,29 @@ Respond with ONLY a number between 0.0 and 1.0"""
 
         return persona_matrix
 
-    def calculate_persona_complementarity_fast(
+    async def calculate_persona_complementarity_fast(
         self, person1_personas: List[str], person2_personas: List[str]
     ) -> float:
         """Fast calculation of persona complementarity using cached matrix"""
 
         if not hasattr(self, "persona_matrix") or not self.persona_matrix:
-            # Try to load from cache
-            cached_matrix = self.cache.get("persona_complementarity_matrix")
-            if cached_matrix:
-                try:
-                    self.persona_matrix = json.loads(cached_matrix)
-                except json.JSONDecodeError:
-                    print(
-                        "Warning: Could not load persona complementarity matrix from cache"
-                    )
-                    return 0.5
+            # Try to load from cache first
+            if self.load_persona_matrix_from_redis():
+                pass  # Successfully loaded
             else:
-                print("Warning: No persona complementarity matrix found")
-                return 0.5
+                # No matrix found - build it automatically
+                if not hasattr(self, "_building_matrix"):
+                    print("🔧 Persona matrix not found. Building automatically...")
+                    self._building_matrix = True
+                    
+                    # Get all personas from the current calculation
+                    all_personas = set(person1_personas + person2_personas)
+                    
+                    # Build matrix just for personas we've seen so far (incremental)
+                    await self.build_incremental_persona_matrix(all_personas)
+                else:
+                    # Already building, use fallback
+                    return 0.5
 
         if not person1_personas or not person2_personas:
             return 0.0
@@ -697,6 +702,247 @@ Respond with ONLY a number between 0.0 and 1.0"""
             except json.JSONDecodeError:
                 return False
         return False
+
+    async def build_incremental_persona_matrix(self, new_personas: set) -> None:
+        """Build matrix incrementally for new personas encountered"""
+        
+        # Load existing matrix or start fresh
+        if not hasattr(self, "persona_matrix"):
+            self.persona_matrix = {}
+        
+        # Get personas that need to be added
+        existing_personas = set(self.persona_matrix.keys()) if self.persona_matrix else set()
+        personas_to_add = new_personas - existing_personas
+        all_personas = existing_personas | new_personas
+        
+        if not personas_to_add:
+            return  # Nothing new to add
+        
+        print(f"📈 Adding {len(personas_to_add)} new personas to matrix (total: {len(all_personas)})")
+        
+        # Build relationships for new personas
+        for new_persona in personas_to_add:
+            if new_persona not in self.persona_matrix:
+                self.persona_matrix[new_persona] = {}
+            
+            # Calculate relationships with ALL personas (existing + new)
+            for other_persona in all_personas:
+                if new_persona != other_persona:
+                    if other_persona not in self.persona_matrix:
+                        self.persona_matrix[other_persona] = {}
+                    
+                    # Only calculate if not already exists
+                    if other_persona not in self.persona_matrix[new_persona]:
+                        try:
+                            score = await self.calculate_persona_complementarity_chatgpt(
+                                new_persona, other_persona
+                            )
+                            # Store symmetrically
+                            self.persona_matrix[new_persona][other_persona] = score
+                            self.persona_matrix[other_persona][new_persona] = score
+                        except Exception as e:
+                            print(f"Error calculating {new_persona} <-> {other_persona}: {e}")
+                            # Use embedding similarity as fallback
+                            score = await self.calculate_embedding_similarity_fallback(
+                                new_persona, other_persona
+                            )
+                            self.persona_matrix[new_persona][other_persona] = score
+                            self.persona_matrix[other_persona][new_persona] = score
+        
+        # Save updated matrix to Redis
+        self.cache.set("persona_complementarity_matrix", json.dumps(self.persona_matrix))
+        print(f"💾 Updated persona matrix cached with {len(self.persona_matrix)} personas")
+
+    async def calculate_embedding_similarity_fallback(
+        self, persona1: str, persona2: str
+    ) -> float:
+        """Use embedding similarity as fallback for complementarity calculation"""
+        try:
+            from embedding_service import embedding_service
+            
+            embeddings = await embedding_service.get_batch_embeddings([persona1, persona2])
+            similarity = np.dot(embeddings[0], embeddings[1]) / (
+                np.linalg.norm(embeddings[0]) * np.linalg.norm(embeddings[1])
+            )
+            
+            # Convert similarity to complementarity (inverse relationship)
+            complementarity = 1.0 - similarity
+            return max(0.0, min(1.0, complementarity))  # Clamp to [0,1]
+            
+        except Exception:
+            return 0.5  # Final fallback
+
+    async def calculate_persona_complementarity_chatgpt(
+        self, persona1: str, persona2: str
+    ) -> float:
+        """Calculate persona complementarity using ChatGPT"""
+        
+        prompt = f"""Rate the strategic complementarity between these two professional personas for networking/collaboration on a scale of 0.0 to 1.0.
+
+Persona 1: {persona1}
+Persona 2: {persona2}
+
+Consider:
+- Do they have complementary skills that would benefit collaboration?
+- Would they bring different perspectives to solving problems?
+- Are there natural synergies in their expertise domains?
+- Would they learn valuable things from each other?
+
+Rate from 0.0 (no complementarity/overlap) to 1.0 (perfect complementarity).
+
+Respond with only a number between 0.0 and 1.0."""
+
+        try:
+            response = await self.openai_client.chat.completions.create(
+                model="gpt-4",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1,
+                max_tokens=10,
+            )
+            
+            result = response.choices[0].message.content.strip()
+            score = float(result)
+            return max(0.0, min(1.0, score))  # Clamp to [0,1]
+            
+        except Exception as e:
+            print(f"ChatGPT error for {persona1} <-> {persona2}: {e}")
+            # Fall back to embedding similarity
+            return await self.calculate_embedding_similarity_fallback(persona1, persona2)
+
+    def load_experience_matrix_from_redis(self) -> bool:
+        """Load experience complementarity matrix from Redis cache"""
+        cached_matrix = self.cache.get("experience_complementarity_matrix")
+        if cached_matrix:
+            try:
+                self.experience_matrix = json.loads(cached_matrix)
+                return True
+            except json.JSONDecodeError:
+                return False
+        return False
+
+    async def build_experience_complementarity_matrix(self, csv_path: str) -> Dict[str, Dict[str, float]]:
+        """Build experience complementarity matrix using ChatGPT"""
+        
+        # Extract all unique experience tags from dataset
+        import pandas as pd
+        from tag_extractor import tag_extractor
+        
+        df = pd.read_csv(csv_path)
+        all_experience_tags = set()
+        
+        for idx, row in df.iterrows():
+            if pd.notna(row.get("Professional Identity - Experience Level", "")):
+                tags = tag_extractor.extract_tags(row["Professional Identity - Experience Level"], "experience")
+                all_experience_tags.update(tags)
+        
+        experience_list = list(all_experience_tags)
+        print(f"Building experience complementarity matrix for {len(experience_list)} experience levels...")
+        
+        # Build matrix
+        experience_matrix = {}
+        for experience1 in experience_list:
+            experience_matrix[experience1] = {}
+            for experience2 in experience_list:
+                if experience1 == experience2:
+                    experience_matrix[experience1][experience2] = 0.0  # Same experience = no complementarity
+                else:
+                    # Use ChatGPT to score experience complementarity
+                    try:
+                        score = await self.calculate_experience_complementarity_chatgpt(experience1, experience2)
+                        experience_matrix[experience1][experience2] = score
+                    except Exception as e:
+                        print(f"Error calculating {experience1} <-> {experience2}: {e}")
+                        # Fallback based on semantic similarity
+                        score = await self.calculate_embedding_similarity_fallback(experience1, experience2)
+                        experience_matrix[experience1][experience2] = score
+
+        # Cache the matrix
+        self.cache.set("experience_complementarity_matrix", json.dumps(experience_matrix))
+        self.experience_matrix = experience_matrix
+        
+        print(f"✅ Built experience complementarity matrix with {len(experience_list)} experience levels")
+        return experience_matrix
+
+    async def calculate_experience_complementarity_chatgpt(self, exp1: str, exp2: str) -> float:
+        """Calculate experience complementarity using ChatGPT"""
+        
+        prompt = f"""Rate the complementarity value for professional networking between these two experience levels on a scale of 0.0 to 1.0.
+
+Experience Level 1: {exp1}
+Experience Level 2: {exp2}
+
+Consider:
+- Would they benefit from mentorship relationships (senior-junior)?
+- Do they bring different perspectives and knowledge levels?
+- Is there mutual learning potential?
+- Would they complement each other in team dynamics?
+
+Examples:
+- Senior + Junior = High complementarity (0.7-0.9) - mentorship value
+- Senior + Senior = Medium complementarity (0.3-0.5) - peer collaboration  
+- Junior + Junior = Low complementarity (0.1-0.3) - similar skill levels
+
+Rate from 0.0 (no complementarity) to 1.0 (perfect complementarity).
+Respond with only a number between 0.0 and 1.0."""
+
+        try:
+            response = await self.openai_client.chat.completions.create(
+                model="gpt-4",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1,
+                max_tokens=10,
+            )
+            
+            result = response.choices[0].message.content.strip()
+            score = float(result)
+            return max(0.0, min(1.0, score))
+            
+        except Exception as e:
+            print(f"ChatGPT error for {exp1} <-> {exp2}: {e}")
+            return await self.calculate_embedding_similarity_fallback(exp1, exp2)
+
+    async def calculate_experience_complementarity_fast(
+        self, person1_experience: List[str], person2_experience: List[str]
+    ) -> float:
+        """Fast calculation of experience complementarity using cached matrix"""
+        
+        if not hasattr(self, "experience_matrix") or not self.experience_matrix:
+            # Try to load from cache first
+            if self.load_experience_matrix_from_redis():
+                pass  # Successfully loaded
+            else:
+                # Use embedding similarity fallback
+                if not person1_experience or not person2_experience:
+                    return 0.0
+                    
+                # Calculate average embedding-based complementarity
+                total_score = 0.0
+                pair_count = 0
+                
+                for exp1 in person1_experience:
+                    for exp2 in person2_experience:
+                        score = await self.calculate_embedding_similarity_fallback(exp1, exp2)
+                        total_score += score
+                        pair_count += 1
+                
+                return total_score / pair_count if pair_count > 0 else 0.0
+
+        if not person1_experience or not person2_experience:
+            return 0.0
+
+        total_score = 0.0
+        pair_count = 0
+
+        for exp1 in person1_experience:
+            for exp2 in person2_experience:
+                if (
+                    exp1 in self.experience_matrix
+                    and exp2 in self.experience_matrix[exp1]
+                ):
+                    total_score += self.experience_matrix[exp1][exp2]
+                    pair_count += 1
+
+        return total_score / pair_count if pair_count > 0 else 0.0
 
 
 async def build_and_save_causal_graph(csv_path: str):

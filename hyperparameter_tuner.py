@@ -58,22 +58,31 @@ CURRENT DEFAULT WEIGHTS:
 
 USER REQUEST: "{user_prompt}"
 
-Based on the user's intent, adjust these weights to better match their goals. The weights must sum to 1.0.
+Based on the user's intent, adjust these weights to better match their goals. 
+
+IMPORTANT CONSTRAINTS:
+1. The weights must sum to 1.0
+2. You CAN use NEGATIVE weights to discourage/penalize certain aspects
+3. Negative weights mean "discourage/penalize" not "completely avoid"
+   - Negative ROLE_SIMILARITY_WEIGHT = discourage similar roles (CEO-CEO gets penalty)
+   - Negative EXPERIENCE_COMPLEMENTARITY_WEIGHT = discourage diversity (senior-junior gets penalty)
+4. Positive weights mean "encourage/reward" that aspect
 
 EXAMPLES:
-- If user wants "hiring/recruitment" → increase EXPERIENCE_COMPLEMENTARITY_WEIGHT and PERSONA_COMPLEMENTARITY_WEIGHT (looking for different skills)
-- If user wants "peer networking" → increase ROLE_SIMILARITY_WEIGHT and EXPERIENCE_SIMILARITY_WEIGHT (similar professionals)  
-- If user wants "business partnerships" → increase BUSINESS_COMPLEMENTARITY_WEIGHT (strategic synergies)
-- If user wants "mentorship connections" → increase EXPERIENCE_COMPLEMENTARITY_WEIGHT (senior-junior pairs)
-- If user wants "team building" → increase PERSONA_COMPLEMENTARITY_WEIGHT (diverse skill sets)
+- If user wants "hiring/recruitment" → increase EXPERIENCE_COMPLEMENTARITY_WEIGHT and PERSONA_COMPLEMENTARITY_WEIGHT (reward different skills)
+- If user wants "peer networking" → increase ROLE_SIMILARITY_WEIGHT and EXPERIENCE_SIMILARITY_WEIGHT (reward similar professionals)  
+- If user wants "business partnerships" → increase BUSINESS_COMPLEMENTARITY_WEIGHT (reward strategic synergies)
+- If user wants "mentorship connections" → increase EXPERIENCE_COMPLEMENTARITY_WEIGHT (reward senior-junior pairs)
+- If user wants "team building" → increase PERSONA_COMPLEMENTARITY_WEIGHT (reward diverse skill sets)
+- If user wants "diverse/balanced groups" → use NEGATIVE ROLE_SIMILARITY_WEIGHT and EXPERIENCE_SIMILARITY_WEIGHT to discourage homogeneous clusters
 
 Respond ONLY with a JSON object containing the adjusted weights:
 {{
-    "ROLE_SIMILARITY_WEIGHT": 0.25,
-    "EXPERIENCE_SIMILARITY_WEIGHT": 0.10,
-    "EXPERIENCE_COMPLEMENTARITY_WEIGHT": 0.25,
-    "BUSINESS_COMPLEMENTARITY_WEIGHT": 0.20,
-    "PERSONA_COMPLEMENTARITY_WEIGHT": 0.20
+    "ROLE_SIMILARITY_WEIGHT": -0.15,
+    "EXPERIENCE_SIMILARITY_WEIGHT": -0.10,
+    "EXPERIENCE_COMPLEMENTARITY_WEIGHT": 0.45,
+    "BUSINESS_COMPLEMENTARITY_WEIGHT": 0.50,
+    "PERSONA_COMPLEMENTARITY_WEIGHT": 0.30
 }}"""
 
         try:
