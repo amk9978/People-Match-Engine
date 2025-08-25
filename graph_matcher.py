@@ -287,16 +287,13 @@ class GraphMatcher:
         return feature_embeddings
 
     async def create_graph(self, feature_embeddings: Dict[str, np.ndarray]) -> nx.Graph:
-        """Create a weighted graph using optimized 5-component hybrid equation"""
-
-        # Check if FAISS optimization is enabled
-        use_faiss = os.getenv("USE_FAISS_OPTIMIZATION", "false").lower() == "true"
-
+        """Create graph using FAISS optimization for performance on large datasets"""
+        
+        use_faiss = os.getenv("USE_FAISS_OPTIMIZATION", "true").lower() == "true"
+        
         if use_faiss:
-            print("🚀 Using FAISS-optimized graph creation...")
             return await self.create_graph_faiss(feature_embeddings)
         else:
-            print("⚡ Using optimized 5-component hybrid similarity graph...")
             return await self.create_graph_optimized(feature_embeddings)
 
     async def create_graph_optimized(
@@ -325,8 +322,7 @@ class GraphMatcher:
                 print("✅ Business complementarity matrix built and cached")
             except Exception as e:
                 print(f"⚠️ Error building business matrix: {e}")
-                print("Falling back to traditional similarity calculation...")
-                return await self.create_graph_traditional(feature_embeddings)
+                print("Using embedding-based complementarity fallback...")
 
         if not self.causal_analyzer.load_experience_matrix_from_redis():
             print(
@@ -474,110 +470,6 @@ class GraphMatcher:
         )
         return self.graph
 
-    async def create_graph_traditional(
-        self, feature_embeddings: Dict[str, np.ndarray]
-    ) -> nx.Graph:
-        """Fallback: Create traditional similarity-only graph"""
-        print("Creating traditional similarity-only graph...")
-
-        # Calculate pairwise similarities for each feature
-        feature_similarities = {}
-        for feature_name, embeddings in feature_embeddings.items():
-            similarity_matrix = cosine_similarity(embeddings)
-            feature_similarities[feature_name] = similarity_matrix
-            print(f"Calculated {feature_name} similarities")
-
-        num_people = len(self.df)
-
-        # Apply 5-component similarity equation (consistent with main create_graph)
-        for i in range(num_people):
-            for j in range(i + 1, num_people):
-
-                # 1. ROLE SIMILARITY (professional homophily)
-                role_similarity = 0.0
-                if "role_spec" in feature_similarities:
-                    role_similarity = feature_similarities["role_spec"][i][j]
-
-                # 2. EXPERIENCE SIMILARITY (peer-level networking)
-                experience_similarity = 0.0
-                if "experience" in feature_similarities:
-                    experience_similarity = feature_similarities["experience"][i][j]
-
-                # 3. EXPERIENCE COMPLEMENTARITY (senior-junior mentorship)
-                experience_complementarity = 1.0 - experience_similarity
-
-                # 3. BUSINESS COMPLEMENTARITY (market/offering synergies - simplified without causal graph)
-                business_complementarity = 0.0
-                if (
-                    "market" in feature_similarities
-                    and "offering" in feature_similarities
-                ):
-                    market_comp = 1.0 - feature_similarities["market"][i][j]
-                    offering_comp = 1.0 - feature_similarities["offering"][i][j]
-                    business_complementarity = (market_comp + offering_comp) / 2
-
-                # 4. PERSONA SIMILARITY (embedding-based)
-                persona_similarity = 0.0
-                if "personas" in feature_similarities:
-                    persona_similarity = feature_similarities["personas"][i][j]
-
-                # 5. PERSONA COMPLEMENTARITY (ChatGPT-based strategic complementarity)
-                person1_personas = self.extract_tags(
-                    self.df.iloc[i].get("All Persona Titles", "")
-                )
-                person2_personas = self.extract_tags(
-                    self.df.iloc[j].get("All Persona Titles", "")
-                )
-                persona_complementarity = (
-                    await self.causal_analyzer.calculate_persona_complementarity_fast(
-                        person1_personas, person2_personas
-                    )
-                )
-
-                # Apply 6-component equation with both experience similarity and complementarity
-                role_weight = float(os.getenv("ROLE_SIMILARITY_WEIGHT", "0.30"))
-                exp_sim_weight = float(
-                    os.getenv("EXPERIENCE_SIMILARITY_WEIGHT", "0.15")
-                )
-                exp_comp_weight = float(
-                    os.getenv("EXPERIENCE_COMPLEMENTARITY_WEIGHT", "0.15")
-                )
-                business_comp_weight = float(
-                    os.getenv("BUSINESS_COMPLEMENTARITY_WEIGHT", "0.25")
-                )
-                persona_comp_weight = float(
-                    os.getenv("PERSONA_COMPLEMENTARITY_WEIGHT", "0.15")
-                )
-                persona_sim_weight = float(
-                    os.getenv("PERSONA_SIMILARITY_WEIGHT", "0.15")
-                )
-
-                hybrid_similarity = (
-                    role_weight * role_similarity
-                    + exp_sim_weight * experience_similarity
-                    + persona_sim_weight * persona_similarity
-                    + exp_comp_weight * experience_complementarity
-                    + business_comp_weight * business_complementarity
-                    + persona_comp_weight * persona_complementarity
-                )
-
-                if hybrid_similarity > 0.1:
-                    self.graph.add_edge(
-                        i,
-                        j,
-                        weight=hybrid_similarity,
-                        role_similarity=role_similarity,
-                        experience_similarity=experience_similarity,
-                        persona_similarity=persona_similarity,
-                        experience_complementarity=experience_complementarity,
-                        business_complementarity=business_complementarity,
-                        persona_complementarity=persona_complementarity,
-                    )
-
-        print(
-            f"Created traditional graph with {self.graph.number_of_nodes()} nodes and {self.graph.number_of_edges()} edges"
-        )
-        return self.graph
 
     def calculate_subgraph_density(self, nodes: Set[int]) -> float:
         """Calculate the weighted density of a subgraph"""
