@@ -72,7 +72,7 @@ Return ONLY the selected tag, nothing else."""
             return tag_cluster[0]
 
     async def deduplicate_person_tags_semantic(
-            self, tags: List[str], category: str, similarity_threshold: float = 0.80
+        self, tags: List[str], category: str, similarity_threshold: float = 0.80
     ) -> List[str]:
         if len(tags) <= 1:
             return tags
@@ -114,7 +114,7 @@ Return ONLY the selected tag, nothing else."""
         return deduplicated_tags
 
     async def process_dataset_semantic(
-            self, csv_path: str, similarity_threshold: float = 0.80
+        self, csv_path: str, similarity_threshold: float = 0.80
     ) -> Dict[str, Dict]:
         print(
             f"Starting dataset-wide semantic deduplication (threshold: {similarity_threshold})..."
@@ -175,10 +175,14 @@ Return ONLY the selected tag, nothing else."""
 
                     # Apply global mapping and track what changed
                     mapped_tags = [tag_mapping.get(tag, tag) for tag in raw_tags]
-                    deduplicated_tags = list(set(mapped_tags))  # Remove duplicates after mapping
+                    deduplicated_tags = list(
+                        set(mapped_tags)
+                    )  # Remove duplicates after mapping
 
                     # Count how many tags were actually mapped
-                    mappings_applied = sum(1 for i, tag in enumerate(raw_tags) if mapped_tags[i] != tag)
+                    mappings_applied = sum(
+                        1 for i, tag in enumerate(raw_tags) if mapped_tags[i] != tag
+                    )
                     total_mappings_applied += mappings_applied
 
                     original_count = len(raw_tags)
@@ -195,7 +199,7 @@ Return ONLY the selected tag, nothing else."""
                                 "mapped": mapped_tags,
                                 "deduplicated": deduplicated_tags,
                                 "reduction": original_count - deduplicated_count,
-                                "mappings_applied": mappings_applied
+                                "mappings_applied": mappings_applied,
                             }
                         )
 
@@ -208,7 +212,9 @@ Return ONLY the selected tag, nothing else."""
 
             results[category] = {
                 "unique_tags_found": len(unique_tags_list),
-                "tag_mappings_created": len([k for k, v in tag_mapping.items() if k != v]),
+                "tag_mappings_created": len(
+                    [k for k, v in tag_mapping.items() if k != v]
+                ),
                 "original_tag_instances": original_tag_count,
                 "deduplicated_tag_instances": deduplicated_tag_count,
                 "total_reduction": reduction_count,
@@ -216,10 +222,14 @@ Return ONLY the selected tag, nothing else."""
                 "people_affected": len(person_reductions),
                 "similarity_threshold": similarity_threshold,
                 "example_reductions": person_reductions[:5],
-                "sample_mappings": dict(list({k: v for k, v in tag_mapping.items() if k != v}.items())[:10])
+                "sample_mappings": dict(
+                    list({k: v for k, v in tag_mapping.items() if k != v}.items())[:10]
+                ),
             }
 
-            print(f"  ✅ Tag instances: {original_tag_count} → {deduplicated_tag_count}")
+            print(
+                f"  ✅ Tag instances: {original_tag_count} → {deduplicated_tag_count}"
+            )
             print(f"  📉 Total reduction: {reduction_count} ({reduction_ratio:.1%})")
             print(f"  👥 People affected: {len(person_reductions)}")
 
@@ -229,7 +239,7 @@ Return ONLY the selected tag, nothing else."""
         return results
 
     async def create_global_tag_mapping(
-            self, unique_tags: List[str], category: str, similarity_threshold: float
+        self, unique_tags: List[str], category: str, similarity_threshold: float
     ) -> Dict[str, str]:
         """Create global tag->umbrella mapping for consistent deduplication"""
 
@@ -275,7 +285,7 @@ Return ONLY the selected tag, nothing else."""
         return tag_mapping
 
     async def apply_semantic_deduplication(
-            self, tags: List[str], category: str, similarity_threshold: float = 0.80
+        self, tags: List[str], category: str, similarity_threshold: float = 0.80
     ) -> List[str]:
         """Apply semantic deduplication to a list of tags"""
         return await self.deduplicate_person_tags_semantic(
@@ -362,6 +372,5 @@ if __name__ == "__main__":
                 test_tags, "role_spec", threshold
             )
             print(f"\nExample clustering: {test_tags} → {result}")
-
 
     asyncio.run(main())

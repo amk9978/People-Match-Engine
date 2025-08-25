@@ -213,6 +213,33 @@ class FAISSGraphMatcher:
 
         return combined_edges
 
+    def get_similarity_pairs(
+        self, feature_name: str, top_k: int = 50, min_similarity: float = 0.05
+    ) -> Dict[Tuple[int, int], float]:
+        """Get similarity pairs for a single feature using FAISS"""
+
+        # Get sparse matrix for this specific feature
+        sparse_matrices = self.similarity_engine.build_all_sparse_matrices(top_k)
+
+        if feature_name not in sparse_matrices:
+            print(f"⚠️ Feature {feature_name} not found in FAISS indices")
+            return {}
+
+        feature_matrix = sparse_matrices[feature_name]
+
+        # Filter by minimum similarity
+        filtered_pairs = {
+            pair: similarity
+            for pair, similarity in feature_matrix.items()
+            if similarity >= min_similarity
+        }
+
+        print(
+            f"🔍 Found {len(filtered_pairs)} {feature_name} pairs above {min_similarity} threshold"
+        )
+
+        return filtered_pairs
+
 
 # Example usage and testing
 if __name__ == "__main__":
