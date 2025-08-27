@@ -8,10 +8,8 @@ from typing import Dict, Optional
 
 import numpy as np
 
-from services.graph_matcher import GraphMatcher
-from services.scoring.graph_scorer import GraphScorer
 from services.data.embedding_builder import EmbeddingBuilder
-from services.semantic_person_deduplicator import SemanticPersonDeduplicator
+from services.graph_matcher import GraphMatcher
 
 
 class AnalysisService:
@@ -35,13 +33,18 @@ class AnalysisService:
         return obj
 
     def create_job(
-        self,
-        filename: str,
-        min_density: Optional[float] = None,
-        prompt: Optional[str] = None,
+            self,
+            filename: str,
+            min_density: Optional[float] = None,
+            prompt: Optional[str] = None,
+            file_id: Optional[str] = None,
     ) -> str:
         """Create a new analysis job"""
         job_id = str(uuid.uuid4())
+        
+        # Use provided file_id or generate new one
+        if file_id is None:
+            file_id = str(uuid.uuid4())
 
         self.jobs[job_id] = {
             "status": "queued",
@@ -50,6 +53,7 @@ class AnalysisService:
             "error": None,
             "timestamp": datetime.now(),
             "filename": filename,
+            "file_id": file_id,
             "min_density": min_density,
             "prompt": prompt,
         }
@@ -82,12 +86,12 @@ class AnalysisService:
         return False
 
     def update_job_status(
-        self,
-        job_id: str,
-        status: str,
-        progress: str = None,
-        result: Dict = None,
-        error: str = None,
+            self,
+            job_id: str,
+            status: str,
+            progress: str = None,
+            result: Dict = None,
+            error: str = None,
     ):
         """Update job status"""
         if job_id in self.jobs:
@@ -101,12 +105,12 @@ class AnalysisService:
             self.jobs[job_id]["timestamp"] = datetime.now()
 
     async def run_analysis(
-        self,
-        job_id: str,
-        csv_path: str,
-        notification_service,
-        min_density: float = None,
-        prompt: Optional[str] = None,
+            self,
+            job_id: str,
+            csv_path: str,
+            notification_service,
+            min_density: float = None,
+            prompt: Optional[str] = None,
     ):
         """Run graph analysis with progress notifications"""
         try:
@@ -158,18 +162,11 @@ class AnalysisService:
                     "progress": "Building optimized graph with weight tuning...",
                 },
             )
+
+            file_id = self.jobs[job_id]["file_id"]
             
             # Create modern graph using GraphBuilder's create_graph with user prompt for weight tuning
-            await matcher.create_graph(feature_embeddings, prompt)
-            
-            # Store tuning info if prompt was provided
-            # TODO: Do I still need this?
-            if prompt:
-                graph_scorer = GraphScorer()
-                tuned_weights = await graph_scorer.get_tuned_2plus2_weights(prompt)
-                self.jobs[job_id]["tuned_weights"] = tuned_weights
-                self.jobs[job_id]["user_prompt"] = prompt
-
+            await matcher.create_graph(feature_embeddings, file_id, prompt)
             self.update_job_status(job_id, "processing", "Finding dense subgraph...")
             await notification_service.broadcast_job_update(
                 job_id,
@@ -228,7 +225,7 @@ class FileService:
     async def save_uploaded_file(file) -> str:
         """Save uploaded file to temporary location"""
         with tempfile.NamedTemporaryFile(
-            mode="wb", suffix=".csv", delete=False
+                mode="wb", suffix=".csv", delete=False
         ) as tmp_file:
             content = await file.read()
             tmp_file.write(content)

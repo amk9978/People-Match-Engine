@@ -93,6 +93,7 @@ async def analyze_csv(
     file: UploadFile = File(...),
     min_density: Optional[float] = None,
     prompt: Optional[str] = None,
+    file_id: Optional[str] = None,
     user_id: str = Header(..., alias="X-User-ID"),
 ):
     """Upload CSV file and start graph analysis with optional hyperparameter tuning
@@ -101,6 +102,7 @@ async def analyze_csv(
     - file: CSV file with professional data
     - min_density: Minimum density threshold for subgraph extraction
     - prompt: Optional user intent to tune hyperparameters (e.g., "I want to hire for my startup", "I need peer networking", "I want business partnerships")
+    - file_id: Optional file identifier for cache isolation (auto-generated if not provided)
     - X-User-ID: User identifier in header
     """
     if not user_id:
@@ -115,7 +117,7 @@ async def analyze_csv(
         await file.seek(0)
         temp_path = await file_service.save_uploaded_file(file)
         
-        job_id = analysis_service.create_job(file.filename, min_density, prompt)
+        job_id = analysis_service.create_job(file.filename, min_density, prompt, file_id)
 
         async def run_analysis_with_tracking():
             try:

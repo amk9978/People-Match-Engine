@@ -95,19 +95,19 @@ class GraphMatcher:
         """Delegate to GraphBuilder"""
         return await self.graph_builder.embed_features()
 
-    async def create_graph(self, feature_embeddings: Dict[str, np.ndarray], user_prompt: str = None) -> nx.Graph:
+    async def create_graph(self, feature_embeddings: Dict[str, np.ndarray], file_id: str, user_prompt: str = None) -> nx.Graph:
         """Delegate to GraphBuilder"""
-        self.graph = await self.graph_builder.create_graph(feature_embeddings, user_prompt)
+        self.graph = await self.graph_builder.create_graph(feature_embeddings, file_id, user_prompt)
         return self.graph
 
-    async def create_graph_optimized(self, feature_embeddings: Dict[str, np.ndarray], user_prompt: str = None) -> nx.Graph:
+    async def create_graph_optimized(self, feature_embeddings: Dict[str, np.ndarray], file_id: str, user_prompt: str = None) -> nx.Graph:
         """Delegate to GraphBuilder"""
-        self.graph = await self.graph_builder.create_graph_optimized(feature_embeddings, user_prompt)
+        self.graph = await self.graph_builder.create_graph_optimized(feature_embeddings, file_id, user_prompt)
         return self.graph
 
-    async def create_graph_faiss(self, feature_embeddings: Dict[str, np.ndarray], user_prompt: str = None) -> nx.Graph:
+    async def create_graph_faiss(self, feature_embeddings: Dict[str, np.ndarray], file_id: str, user_prompt: str = None) -> nx.Graph:
         """Delegate to GraphBuilder"""
-        self.graph = await self.graph_builder.create_graph_faiss(feature_embeddings, user_prompt)
+        self.graph = await self.graph_builder.create_graph_faiss(feature_embeddings, file_id, user_prompt)
         return self.graph
 
     def calculate_subgraph_density(self, nodes: Set[int]) -> float:

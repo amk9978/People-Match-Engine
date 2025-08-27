@@ -18,16 +18,12 @@ class SubgraphAnalyzer:
         if not nodes:
             return {"size": 0, "density": 0.0, "members": []}
 
-        # Get members info
+        # Get members info (minimal data only)
         members = []
         for node in nodes:
             person_data = df.iloc[node]
             members.append({
                 "name": person_data["Person Name"],
-                "company": person_data["Person Company"],
-                "role": person_data.get("Professional Identity - Role Specification", ""),
-                "experience": person_data.get("Professional Identity - Experience Level", ""),
-                "industry": person_data.get("Company Identity - Industry Classification", ""),
                 "linkedin": person_data.get("Person Linkedin URL", "")
             })
 
@@ -62,16 +58,20 @@ class SubgraphAnalyzer:
         return result
 
     def calculate_subgraph_density(self, nodes: Set[int], graph: nx.Graph) -> float:
-        """Calculate density of a subgraph given a set of nodes"""
+        """Calculate WEIGHTED density of a subgraph given a set of nodes"""
         if len(nodes) < 2:
             return 0.0
 
         subgraph = graph.subgraph(nodes)
-        num_edges = subgraph.number_of_edges()
+        
+        # Sum up edge weights, not just count edges!
+        total_weight = sum(data.get('weight', 0.0) for _, _, data in subgraph.edges(data=True))
+        
         num_nodes = len(nodes)
         max_possible_edges = num_nodes * (num_nodes - 1) / 2
 
-        return num_edges / max_possible_edges if max_possible_edges > 0 else 0.0
+        # Normalize by maximum possible edges to get density metric
+        return total_weight / max_possible_edges if max_possible_edges > 0 else 0.0
 
     def analyze_subgraph_centroids(self, nodes: Set[int], feature_embeddings: Dict[str, np.ndarray]) -> Dict:
         """Analyze centroids of the dense subgraph to find representative tags"""

@@ -39,22 +39,22 @@ class GraphBuilder:
         self.df = self.csv_loader.load_data()
         return self.df
 
-    async def create_graph(self, feature_embeddings: Dict[str, np.ndarray], user_prompt: str = None) -> nx.Graph:
+    async def create_graph(self, feature_embeddings: Dict[str, np.ndarray], file_id: str, user_prompt: str = None) -> nx.Graph:
         """Create graph using FAISS optimization for performance on large datasets"""
         #
         # if self.faiss_optimizer.is_enabled():
         #     return await self.create_graph_faiss(feature_embeddings, user_prompt)
         # else:
-        return await self.create_graph_optimized(feature_embeddings, user_prompt)
+        return await self.create_graph_optimized(feature_embeddings, file_id, user_prompt)
 
-    async def create_graph_optimized(self, feature_embeddings: Dict[str, np.ndarray], user_prompt: str = None) -> nx.Graph:
+    async def create_graph_optimized(self, feature_embeddings: Dict[str, np.ndarray], file_id: str, user_prompt: str = None) -> nx.Graph:
         self.graph = nx.Graph()
         num_people = len(self.df)
         for idx, row in self.df.iterrows():
             self.graph.add_node(
                 idx, name=row["Person Name"], company=row["Person Company"]
             )
-        await self.matrix_builder.precompute_complementarity_matrices(self.csv_path)
+        await self.matrix_builder.precompute_complementarity_matrices(self.csv_path, file_id)
         self.similarity_calc.precompute_similarity_matrices(feature_embeddings)
         await self.matrix_builder.precompute_person_tags(self.df, self.embedding_builder)
         w_s, w_c = tune_parameters(prompt=user_prompt)
@@ -81,7 +81,7 @@ class GraphBuilder:
         print(f"✅ Created optimized graph with {self.graph.number_of_nodes()} nodes and {edges_added} edges")
         return self.graph
 
-    async def create_graph_faiss(self, feature_embeddings: Dict[str, np.ndarray], user_prompt: str = None) -> nx.Graph:
+    async def create_graph_faiss(self, feature_embeddings: Dict[str, np.ndarray], file_id: str, user_prompt: str = None) -> nx.Graph:
         """Create graph using FAISS with 2+2 architecture for maximum performance"""
 
         self.graph = nx.Graph()
@@ -108,7 +108,7 @@ class GraphBuilder:
         print(f"   Business Complementarity: {weights[3]:.3f}")
 
         # Initialize complementarity matrices
-        await self.matrix_builder.precompute_complementarity_matrices(self.csv_path)
+        await self.matrix_builder.precompute_complementarity_matrices(self.csv_path, file_id)
         await self.matrix_builder.precompute_person_tags(self.df, self.embedding_builder)
 
         # Process candidate pairs
@@ -149,8 +149,15 @@ class GraphBuilder:
         dense_subgraphs = []
         working_graph = self.graph.copy()
 
+        # Initialize heap with (weighted_degree, node) pairs
+        heap = []
+        for node in working_graph.nodes():
+            weighted_degree = sum(data.get('weight', 0.0) 
+                                for _, _, data in working_graph.edges(node, data=True))
+            heapq.heappush(heap, (weighted_degree, node))
+        
         iteration = 0
-        while working_graph.number_of_nodes() > 0:
+        while heap and working_graph.number_of_nodes() > 0:
             iteration += 1
             print(f"\n--- Iteration {iteration} ---")
             print(
@@ -161,17 +168,7 @@ class GraphBuilder:
                 print("⏹️ Stopping: Less than 3 nodes remaining")
                 break
 
-            # Find node with minimum degree
-            degrees = dict(working_graph.degree())
-            if not degrees:
-                break
-
-            min_degree_node = min(degrees, key=degrees.get)
-            min_degree = degrees[min_degree_node]
-
-            print(f"Node with minimum degree: {min_degree_node} (degree={min_degree})")
-
-            # Check if current graph forms a dense subgraph
+            # Check if current graph forms a dense subgraph BEFORE removing nodes
             current_nodes = set(working_graph.nodes())
             current_density = self.calculate_subgraph_density(current_nodes)
             print(f"Current subgraph density: {current_density:.4f}")
@@ -179,25 +176,8 @@ class GraphBuilder:
             if current_density >= self.min_density:
                 print(f"✅ Found dense subgraph with {len(current_nodes)} nodes")
 
-                # Get member details
-                members = []
-                total_weight = 0.0
-                for node in current_nodes:
-                    person_data = self.df.iloc[node]
-                    members.append(
-                        {
-                            "name": person_data["Person Name"],
-                            "company": person_data["Person Company"],
-                            "role": person_data[
-                                "Professional Identity - Role Specification"
-                            ],
-                        }
-                    )
-
                 # Calculate average edge weight
-                edges_in_subgraph = working_graph.subgraph(current_nodes).edges(
-                    data=True
-                )
+                edges_in_subgraph = working_graph.subgraph(current_nodes).edges(data=True)
                 if edges_in_subgraph:
                     total_weight = sum(
                         data.get("weight", 0.0) for _, _, data in edges_in_subgraph
@@ -205,14 +185,6 @@ class GraphBuilder:
                     avg_weight = total_weight / len(edges_in_subgraph)
                 else:
                     avg_weight = 0.0
-
-                dense_subgraph = {
-                    "nodes": current_nodes,
-                    "size": len(current_nodes),
-                    "density": current_density,
-                    "avg_edge_weight": avg_weight,
-                    "members": members,
-                }
 
                 dense_subgraphs.append(current_nodes)
 
@@ -222,11 +194,38 @@ class GraphBuilder:
                 print(f"  • Average edge weight: {avg_weight:.4f}")
 
                 if not find_all:
-                    print("🎯 Found target dense subgraph (find_all=False)")
-                    break
+                    print("🎯 Found target dense subgraph, stopping early (find_all=False)")
+                    return dense_subgraphs
 
-            # Remove the minimum degree node and continue
-            working_graph.remove_node(min_degree_node)
+            # Find and remove node with minimum weighted degree using heap
+            while heap:
+                min_weighted_degree, min_weighted_node = heapq.heappop(heap)
+                
+                # Check if node still exists (might have been removed as neighbor)
+                if min_weighted_node not in working_graph:
+                    continue
+                    
+                # Verify this is still the minimum (degree might have changed)
+                current_weighted_degree = sum(data.get('weight', 0.0) 
+                                             for _, _, data in working_graph.edges(min_weighted_node, data=True))
+                
+                if abs(current_weighted_degree - min_weighted_degree) < 1e-6:  # Still minimum
+                    print(f"Removing node {min_weighted_node} (weighted_degree={min_weighted_degree:.4f})")
+                    
+                    # Update heap: remove affected neighbors and add back with new degrees
+                    neighbors = list(working_graph.neighbors(min_weighted_node))
+                    working_graph.remove_node(min_weighted_node)
+                    
+                    # Re-add neighbors to heap with updated weighted degrees
+                    for neighbor in neighbors:
+                        if neighbor in working_graph:  # Still exists
+                            new_weighted_degree = sum(data.get('weight', 0.0) 
+                                                     for _, _, data in working_graph.edges(neighbor, data=True))
+                            heapq.heappush(heap, (new_weighted_degree, neighbor))
+                    break
+                else:
+                    # Degree changed, re-add with current degree
+                    heapq.heappush(heap, (current_weighted_degree, min_weighted_node))
 
         if not dense_subgraphs:
             print(f"❌ No dense subgraphs found with density >= {self.min_density}")
@@ -249,7 +248,7 @@ class GraphBuilder:
         return largest_subgraph, largest_density
 
     # Complete analysis pipeline
-    async def run_complete_analysis(self) -> Dict:
+    async def run_complete_analysis(self, file_id: str) -> Dict:
         """Run complete analysis pipeline"""
         print("Starting multi-feature graph matching analysis with tag deduplication...")
 
@@ -263,7 +262,7 @@ class GraphBuilder:
         feature_embeddings = await self.embed_features()
 
         # Step 4: Create hybrid similarity graph
-        await self.create_graph(feature_embeddings)
+        await self.create_graph(feature_embeddings, file_id)
 
         largest_dense_nodes, density = self.find_largest_dense_subgraph()
 

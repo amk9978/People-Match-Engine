@@ -1,4 +1,10 @@
+import json
 import math
+import os
+from textwrap import dedent
+from typing import Dict, Tuple
+
+import openai
 
 FEATURES = ["role", "experience", "industry", "market", "offering", "persona"]
 
@@ -71,12 +77,117 @@ def combine_edge_weight(
 
     return e
 
-def tune_parameters(prompt: str):
 
-    w_s = {"role": 1, "experience": 1, "industry": 1, "market": 1, "offering": 1, "persona": 1}
-    w_c = {"role": 1, "experience": 1.2, "industry": 1.1, "market": 1.1, "offering": 1.2, "persona": 0.9}
+def tune_parameters(prompt: str = None) -> Tuple[Dict[str, float], Dict[str, float]]:
+    """
+    Use ChatGPT to tune similarity and complementarity weights based on user intent.
+    Returns (w_s, w_c) - similarity and complementarity weights for each feature.
+    Falls back to default weights if ChatGPT fails.
+    """
+    # Default weights (fallback values)
+    default_w_s = {"role": 1.0, "experience": 1.0, "industry": 1.0, "market": 1.0, "offering": 1.0, "persona": 1.0}
+    default_w_c = {"role": 1.0, "experience": 1.2, "industry": 1.1, "market": 1.1, "offering": 1.2, "persona": 0.9}
 
-    return w_s, w_c
+    if not prompt or not prompt.strip():
+        return default_w_s, default_w_c
+
+    try:
+        client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+        chatgpt_prompt = dedent(f"""
+You are an expert in professional network analysis and team matching algorithms.
+
+USER INTENT: "{prompt}"
+
+Based on this user intent, provide optimal weights for similarity and complementarity across 6 professional features.
+
+FEATURES EXPLANATION:
+- role: Job titles, responsibilities, professional functions
+- experience: Career level, years of experience, seniority  
+- industry: Business sector, domain expertise
+- market: Target audience, customer segments, market focus
+- offering: Products/services, value propositions
+- persona: Professional personality, working style, leadership traits
+
+WEIGHT INTERPRETATION:
+- SIMILARITY weights: Higher = prefer people with similar traits (team cohesion, cultural fit)
+- COMPLEMENTARITY weights: Higher = prefer people with different traits (skill diversity, covering gaps)
+
+USER INTENT EXAMPLES:
+- "I want to hire for my startup" → Higher complementarity for roles/experience (diverse skills), higher similarity for industry/market (same domain focus)
+- "I need peer networking" → Higher similarity across all features (find similar professionals)
+- "I want business partnerships" → Higher complementarity for market/offering (different customer bases), similarity for industry (same domain)
+
+CRITICAL: You must respond with EXACTLY this JSON format:
+{{
+    "similarity_weights": {{
+        "role": 0.XX,
+        "experience": 0.XX, 
+        "industry": 0.XX,
+        "market": 0.XX,
+        "offering": 0.XX,
+        "persona": 0.XX
+    }},
+    "complementarity_weights": {{
+        "role": 0.XX,
+        "experience": 0.XX,
+        "industry": 0.XX, 
+        "market": 0.XX,
+        "offering": 0.XX,
+        "persona": 0.XX
+    }}
+}}
+
+REQUIREMENTS:
+- Each weight between 0.5 and 2.0 (0.5 = de-emphasize, 1.0 = neutral, 2.0 = emphasize strongly)
+- Within each weight set, values should reflect relative importance for the user's intent
+- NO OTHER TEXT - ONLY the JSON object
+""")
+
+        response = client.chat.completions.create(
+            model="gpt-4",
+            messages=[{"role": "user", "content": chatgpt_prompt}],
+            temperature=0.3,
+            max_tokens=500
+        )
+
+        result_text = response.choices[0].message.content.strip()
+
+        try:
+            result_json = json.loads(result_text)
+
+            similarity_weights = result_json.get("similarity_weights", {})
+            complementarity_weights = result_json.get("complementarity_weights", {})
+
+            w_s = {}
+            w_c = {}
+
+            for feature in FEATURES:
+                # Similarity weights
+                if feature in similarity_weights:
+                    weight = float(similarity_weights[feature])
+                    w_s[feature] = min(2.0, weight)
+                else:
+                    w_s[feature] = default_w_s[feature]
+
+                # Complementarity weights  
+                if feature in complementarity_weights:
+                    weight = float(complementarity_weights[feature])
+                    w_c[feature] = min(2.0, weight)
+                else:
+                    w_c[feature] = default_w_c[feature]
+
+            return w_s, w_c
+
+        except (json.JSONDecodeError, KeyError, ValueError, TypeError) as parse_error:
+            print(f"⚠️ Failed to parse ChatGPT response: {parse_error}")
+            print(f"   Response was: {result_text[:200]}...")
+            return default_w_s, default_w_c
+
+    except Exception as e:
+        print(f"⚠️ ChatGPT weight tuning failed: {e}")
+        print("   Using default weights")
+        return default_w_s, default_w_c
 
 
 if __name__ == '__main__':
