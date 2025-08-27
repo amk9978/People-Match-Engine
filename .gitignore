@@ -13,3 +13,5 @@ samples2/
 .env
 cache/
 data/
+
+tests/
