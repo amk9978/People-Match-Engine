@@ -163,6 +163,7 @@ class AnalysisService:
             await matcher.create_graph(feature_embeddings, prompt)
             
             # Store tuning info if prompt was provided
+            # TODO: Do I still need this?
             if prompt:
                 graph_scorer = GraphScorer()
                 tuned_weights = await graph_scorer.get_tuned_2plus2_weights(prompt)

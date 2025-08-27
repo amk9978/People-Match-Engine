@@ -9,8 +9,9 @@ import pandas as pd
 
 from services.data.csv_loader import CSVLoader
 from services.data.embedding_builder import EmbeddingBuilder
+from services.scoring.generalized_mean import combine_edge_weight, tune_parameters
 from services.scoring.similarity_calculator import SimilarityCalculator
-from services.scoring.complementarity_calculator import ComplementarityCalculator
+from services.analysis.matrix_builder import MatrixBuilder
 from services.scoring.graph_scorer import GraphScorer
 from services.optimization.faiss_engine import FaissOptimizer
 from services.analysis.subgraph_analyzer import SubgraphAnalyzer
@@ -25,11 +26,10 @@ class GraphBuilder:
         self.graph = None
         self.df = None
         
-        # Initialize components
         self.csv_loader = CSVLoader(csv_path)
         self.embedding_builder = EmbeddingBuilder()
         self.similarity_calc = SimilarityCalculator()
-        self.complementarity_calc = ComplementarityCalculator()
+        self.matrix_builder = MatrixBuilder()
         self.scorer = GraphScorer()
         self.faiss_optimizer = FaissOptimizer()
         self.subgraph_analyzer = SubgraphAnalyzer()
@@ -41,70 +41,42 @@ class GraphBuilder:
 
     async def create_graph(self, feature_embeddings: Dict[str, np.ndarray], user_prompt: str = None) -> nx.Graph:
         """Create graph using FAISS optimization for performance on large datasets"""
-        
-        if self.faiss_optimizer.is_enabled():
-            return await self.create_graph_faiss(feature_embeddings, user_prompt)
-        else:
-            return await self.create_graph_optimized(feature_embeddings, user_prompt)
+        #
+        # if self.faiss_optimizer.is_enabled():
+        #     return await self.create_graph_faiss(feature_embeddings, user_prompt)
+        # else:
+        return await self.create_graph_optimized(feature_embeddings, user_prompt)
 
     async def create_graph_optimized(self, feature_embeddings: Dict[str, np.ndarray], user_prompt: str = None) -> nx.Graph:
-        """Optimized graph creation with 2+2 architecture and ChatGPT weight tuning"""
-
         self.graph = nx.Graph()
         num_people = len(self.df)
-
-        # Add nodes (people)
         for idx, row in self.df.iterrows():
             self.graph.add_node(
                 idx, name=row["Person Name"], company=row["Person Company"]
             )
-
-        # Initialize complementarity matrices
-        await self.complementarity_calc.precompute_complementarity_matrices(self.csv_path)
-        
-        # Precompute similarity matrices
+        await self.matrix_builder.precompute_complementarity_matrices(self.csv_path)
         self.similarity_calc.precompute_similarity_matrices(feature_embeddings)
+        await self.matrix_builder.precompute_person_tags(self.df, self.embedding_builder)
+        w_s, w_c = tune_parameters(prompt=user_prompt)
 
-        # Precompute person tags for complementarity
-        await self.complementarity_calc.precompute_person_tags(self.df, self.embedding_builder)
-
-        # Get 2+2 architecture weights using ChatGPT or defaults
-        weights = await self.scorer.get_tuned_2plus2_weights(user_prompt)
-        
-        print(f"📊 Using 2+2 architecture with weights:")
-        print(f"   Person Similarity: {weights[0]:.3f}")
-        print(f"   Person Complementarity: {weights[1]:.3f}")
-        print(f"   Business Similarity: {weights[2]:.3f}")
-        print(f"   Business Complementarity: {weights[3]:.3f}")
-        print(f"   Total: {sum(weights):.3f}")
-
-        # Compute pairwise similarities and complementarities
-        print(f"⚡ Computing {num_people * (num_people - 1) // 2} pairwise similarities...")
         edges_added = 0
 
         for i in range(num_people):
             for j in range(i + 1, num_people):
-
-                # Get all similarities
                 similarities = self.similarity_calc.get_all_similarities(i, j)
-                
-                # Get all complementarities
-                complementarities = await self.complementarity_calc.get_all_complementarities(i, j)
-
-                # Calculate 2+2 architecture score
-                score_2plus2 = self.scorer.calculate_2plus2_score(
-                    similarities["role"], similarities["experience"], 
-                    complementarities["role"], complementarities["experience"],
-                    similarities["industry"], similarities["market"], 
-                    similarities["offering"], similarities["persona"],
-                    complementarities["business"],
-                    weights
+                complementarities = self.matrix_builder.get_all_complementarities(i, j)
+                score = combine_edge_weight(
+                    similarities, complementarities,
+                    w_s=w_s, w_c=w_c,
+                    p_s=0.0,
+                    p_c=0.5,
+                    rho=0.5,
+                    lam=0.5,
+                    eta=0.2,
+                    gamma_e=0.85
                 )
-
-                # Add edge if score exceeds threshold
-                if score_2plus2 > 0.1:  # Minimum edge threshold
-                    self.graph.add_edge(i, j, weight=score_2plus2)
-                    edges_added += 1
+                self.graph.add_edge(i, j, weight=score)
+                edges_added += 1
 
         print(f"✅ Created optimized graph with {self.graph.number_of_nodes()} nodes and {edges_added} edges")
         return self.graph
@@ -136,8 +108,8 @@ class GraphBuilder:
         print(f"   Business Complementarity: {weights[3]:.3f}")
 
         # Initialize complementarity matrices
-        await self.complementarity_calc.precompute_complementarity_matrices(self.csv_path)
-        await self.complementarity_calc.precompute_person_tags(self.df, self.embedding_builder)
+        await self.matrix_builder.precompute_complementarity_matrices(self.csv_path)
+        await self.matrix_builder.precompute_person_tags(self.df, self.embedding_builder)
 
         # Process candidate pairs
         edges_added = 0
@@ -147,7 +119,7 @@ class GraphBuilder:
             similarities = self.faiss_optimizer.get_similarity_scores(person_i, person_j, feature_similarities)
             
             # Get complementarities
-            complementarities = await self.complementarity_calc.get_all_complementarities(person_i, person_j)
+            complementarities = self.matrix_builder.get_all_complementarities(person_i, person_j)
 
             # Calculate 2+2 score
             score_2plus2 = self.scorer.calculate_2plus2_score(

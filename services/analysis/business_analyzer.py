@@ -262,3 +262,63 @@ RESPOND WITH ONLY A NUMBER BETWEEN 0.0 AND 1.0:"""
             print(f"Error analyzing role complementarity for {role1} vs {role2}: {e}")
             self.cache.set(cache_key, 0.5)
             return 0.5
+
+    async def get_profile_complementarity(
+        self, target_profile: str, comparison_profiles: List[str], category: str
+    ) -> Dict[str, float]:
+        """Get complementarity scores between complete profile vectors"""
+
+        # Check cache first
+        cache_key = f"profile_complementarity_{category}_{hash(target_profile)}_vs_{len(comparison_profiles)}"
+        cached_result = self.cache.get(cache_key)
+        if cached_result and isinstance(cached_result, str):
+            return json.loads(cached_result)
+
+        # Prepare ChatGPT prompt for complete profile comparison
+        comparison_list = "\n".join([f"- {profile}" for profile in comparison_profiles])
+
+        prompt = f"""
+You are a business strategy expert analyzing complementary relationships between complete {category} profiles.
+
+TARGET PROFILE: {target_profile}
+
+Rate the STRATEGIC COMPLEMENTARITY between the target profile and each of these other {category} profiles:
+
+{comparison_list}
+
+Scoring criteria (0.0 to 1.0):
+- 0.9-1.0: Highly complementary profiles that create significant strategic value together
+- 0.7-0.8: Strong complementarity with clear synergistic potential
+- 0.5-0.6: Moderate complementarity with some collaboration opportunities  
+- 0.3-0.4: Limited complementarity, different but not particularly synergistic
+- 0.1-0.2: Minimal complementarity, too similar or conflicting
+- 0.0: No strategic value, identical or directly competing profiles
+
+IMPORTANT: Rate COMPLEMENTARY VALUE between complete profiles, not similarity. Consider how the full profile combinations would create strategic business value.
+
+CRITICAL: You MUST respond with ONLY a valid JSON object. No explanations, no markdown, no text before or after. Start your response with {{ and end with }}.
+
+Your response:"""
+
+        try:
+            response = await self.openai_client.chat.completions.create(
+                model="gpt-4",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3,
+                max_tokens=1500,
+            )
+
+            result_text = response.choices[0].message.content.strip()
+
+            # Enhanced JSON parsing
+            complementarity_scores = self._parse_chatgpt_response(result_text, comparison_profiles)
+
+            # Cache the result
+            self.cache.set(cache_key, json.dumps(complementarity_scores))
+
+            print(f"  ✓ Got profile complementarity for {target_profile[:50]}... vs {len(complementarity_scores)} profiles")
+            return complementarity_scores
+
+        except Exception as e:
+            print(f"⚠️ Error getting profile complementarity for {target_profile}: {e}")
+            return {profile: 0.5 for profile in comparison_profiles}

@@ -15,7 +15,7 @@ from services.semantic_person_deduplicator import SemanticPersonDeduplicator
 
 load_dotenv()
 
-
+# TODO: Remove this class as it doesn't add anything
 class GraphMatcher:
     """Thin orchestrator that delegates all work to specialized services"""
     
@@ -23,25 +23,20 @@ class GraphMatcher:
         self.csv_path = csv_path
         self.min_density = min_density or float(os.getenv("min_density", 0.1))
         
-        # Single service that handles everything
         self.graph_builder = GraphBuilder(csv_path, min_density)
         
-        # Maintain compatibility attributes
         self.df = None
         self.person_vectors = None
         self.graph = None
         self.cache = RedisEmbeddingCache()
         self.person_deduplicator = SemanticPersonDeduplicator()
 
-    # Main pipeline method
     async def run_analysis(self) -> Dict:
         """Run complete analysis pipeline - delegates to GraphBuilder"""
         print("Starting multi-feature graph matching analysis...")
         
-        # Delegate everything to GraphBuilder
         result = await self.graph_builder.run_complete_analysis()
         
-        # Keep compatibility by setting instance variables
         self.df = self.graph_builder.df
         self.graph = self.graph_builder.graph
         
@@ -51,7 +46,6 @@ class GraphMatcher:
         
         return result
 
-    # Pure delegation methods for compatibility
     def load_data(self) -> pd.DataFrame:
         """Delegate to GraphBuilder"""
         self.df = self.graph_builder.load_data()
@@ -141,7 +135,6 @@ class GraphMatcher:
         """Delegate to GraphBuilder"""
         return self.graph_builder.analyze_subgroups(nodes)
 
-    # Compatibility methods
     def calculate_centroid_and_insights(self, nodes: Set[int], feature_embeddings: Dict[str, np.ndarray]) -> Dict:
         """Delegate to analyze_subgraph_centroids"""
         return self.analyze_subgraph_centroids(nodes, feature_embeddings)

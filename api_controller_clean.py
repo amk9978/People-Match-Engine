@@ -2,7 +2,11 @@
 
 from datetime import datetime
 from typing import Dict, List, Optional
+
+import uvicorn
 from dotenv import load_dotenv
+
+from services.user_service_clean import UserService
 
 # Load environment variables
 load_dotenv()
@@ -106,23 +110,18 @@ async def analyze_csv(
         raise HTTPException(status_code=400, detail="File must be a CSV")
 
     try:
-        # Upload dataset through controller
         dataset_result = await dataset_controller.upload_dataset(user_id, file)
         
-        # Get the temporary file path for analysis
-        await file.seek(0)  # Reset file pointer
+        await file.seek(0)
         temp_path = await file_service.save_uploaded_file(file)
         
         job_id = analysis_service.create_job(file.filename, min_density, prompt)
 
-        # Create wrapper to track analysis completion
         async def run_analysis_with_tracking():
             try:
                 await analysis_service.run_analysis(
                     job_id, temp_path, notification_service, min_density, prompt
                 )
-                # Update user's file analysis count when complete
-                from services.user_service_clean import UserService
                 user_service_clean = UserService()
                 user_service_clean.update_file_analysis(user_id, file.filename)
             except Exception as e:
@@ -414,6 +413,4 @@ async def analyze_modified_dataset(
 
 
 if __name__ == "__main__":
-    import uvicorn
-
     uvicorn.run(app, host="0.0.0.0", port=8000)
