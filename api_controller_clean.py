@@ -1,23 +1,32 @@
 #!/usr/bin/env python3
 
 from datetime import datetime
-from typing import Optional
+from typing import Dict, List, Optional
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 from fastapi import (
     BackgroundTasks,
     FastAPI,
     File,
+    Header,
     HTTPException,
+    Query,
     UploadFile,
     WebSocket,
     WebSocketDisconnect,
 )
+from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 
 from presentation.models import AnalysisResponse, JobStatus
 from services.analysis_service import analysis_service, file_service
 from services.cache_service import cache_service
 from services.notification_service import notification_service
+from controllers.user_controller_clean import UserController
+from controllers.dataset_controller_clean import DatasetController
 
 app = FastAPI(
     title="Graph Matcher API",
@@ -32,6 +41,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Initialize controllers
+user_controller = UserController()
+dataset_controller = DatasetController()
 
 
 @app.websocket("/ws/{client_id}")
@@ -76,6 +89,7 @@ async def analyze_csv(
     file: UploadFile = File(...),
     min_density: Optional[float] = None,
     prompt: Optional[str] = None,
+    user_id: str = Header(..., alias="X-User-ID"),
 ):
     """Upload CSV file and start graph analysis with optional hyperparameter tuning
 
@@ -83,23 +97,39 @@ async def analyze_csv(
     - file: CSV file with professional data
     - min_density: Minimum density threshold for subgraph extraction
     - prompt: Optional user intent to tune hyperparameters (e.g., "I want to hire for my startup", "I need peer networking", "I want business partnerships")
+    - X-User-ID: User identifier in header
     """
+    if not user_id:
+        raise HTTPException(status_code=400, detail="X-User-ID header required")
+        
     if not file_service.validate_csv_file(file.filename):
         raise HTTPException(status_code=400, detail="File must be a CSV")
 
     try:
+        # Upload dataset through controller
+        dataset_result = await dataset_controller.upload_dataset(user_id, file)
+        
+        # Get the temporary file path for analysis
+        await file.seek(0)  # Reset file pointer
         temp_path = await file_service.save_uploaded_file(file)
-
+        
         job_id = analysis_service.create_job(file.filename, min_density, prompt)
 
-        background_tasks.add_task(
-            analysis_service.run_analysis,
-            job_id,
-            temp_path,
-            notification_service,
-            min_density,
-            prompt,
-        )
+        # Create wrapper to track analysis completion
+        async def run_analysis_with_tracking():
+            try:
+                await analysis_service.run_analysis(
+                    job_id, temp_path, notification_service, min_density, prompt
+                )
+                # Update user's file analysis count when complete
+                from services.user_service_clean import UserService
+                user_service_clean = UserService()
+                user_service_clean.update_file_analysis(user_id, file.filename)
+            except Exception as e:
+                print(f"Analysis failed for user {user_id}, file {file.filename}: {e}")
+                raise
+
+        background_tasks.add_task(run_analysis_with_tracking)
 
         return AnalysisResponse(
             job_id=job_id,
@@ -170,6 +200,217 @@ async def clear_cache():
 async def get_websocket_connections():
     """Get list of active WebSocket connections"""
     return notification_service.get_connections_info()
+
+
+# User management endpoints
+@app.get("/users/me")
+async def get_current_user(user_id: str = Header(..., alias="X-User-ID")):
+    """Get current user profile and stats"""
+    return await user_controller.get_user_stats(user_id)
+
+
+@app.get("/users/me/files")
+async def get_user_files(user_id: str = Header(..., alias="X-User-ID")):
+    """Get user's uploaded files"""
+    files = await user_controller.get_user_files(user_id)
+    return {
+        "user_id": user_id,
+        "files": files,
+        "total_files": len(files)
+    }
+
+
+@app.delete("/users/me/files/{filename}")
+async def delete_user_file(
+    filename: str, 
+    user_id: str = Header(..., alias="X-User-ID")
+):
+    """Delete a user's uploaded file"""
+    return await user_controller.remove_user_file(user_id, filename)
+
+
+@app.get("/admin/users")
+async def list_all_users():
+    """Admin endpoint to list all users"""
+    users = await user_controller.list_users()
+    return {
+        "total_users": len(users),
+        "users": users
+    }
+
+
+# Dataset modification endpoints
+@app.get("/datasets")
+async def list_user_datasets(user_id: str = Header(..., alias="X-User-ID")):
+    """List all datasets for the current user"""
+    datasets = await dataset_controller.list_user_datasets(user_id)
+    return {
+        "user_id": user_id,
+        "datasets": datasets,
+        "total_datasets": len(datasets)
+    }
+
+
+@app.get("/datasets/{filename}")
+async def get_dataset_info(
+    filename: str,
+    user_id: str = Header(..., alias="X-User-ID")
+):
+    """Get detailed information about a specific dataset"""
+    return await dataset_controller.get_dataset_info(user_id, filename)
+
+
+@app.get("/datasets/{filename}/preview")
+async def get_dataset_preview(
+    filename: str,
+    user_id: str = Header(..., alias="X-User-ID"),
+    version_id: Optional[str] = Query(None, description="Version ID to preview (default: current)"),
+    limit: int = Query(10, description="Number of rows to preview")
+):
+    """Get preview of dataset with sample rows"""
+    return await dataset_controller.get_dataset_preview(user_id, filename, version_id, limit)
+
+
+@app.post("/datasets/{filename}/add-rows")
+async def add_rows_to_dataset(
+    filename: str,
+    request: BaseModel,
+    user_id: str = Header(..., alias="X-User-ID")
+):
+    """Add new rows to an existing dataset"""
+    from models.requests import AddRowsRequest as AddRowsRequestModel
+    request_obj = AddRowsRequestModel(rows=request.rows, description=request.description)
+    result = await dataset_controller.add_rows(user_id, filename, request_obj)
+    return {
+        "message": "Rows added successfully",
+        "result": result
+    }
+
+
+@app.post("/datasets/{filename}/delete-rows")
+async def delete_rows_from_dataset(
+    filename: str,
+    request: BaseModel,
+    user_id: str = Header(..., alias="X-User-ID")
+):
+    """Delete specific rows by index from dataset"""
+    from models.requests import DeleteRowsRequest as DeleteRowsRequestModel
+    request_obj = DeleteRowsRequestModel(row_indices=request.row_indices, description=request.description)
+    result = await dataset_controller.delete_rows(user_id, filename, request_obj)
+    return {
+        "message": f"Deleted {len(request.row_indices)} rows successfully",
+        "result": result
+    }
+
+
+@app.post("/datasets/{filename}/delete-rows-by-criteria")
+async def delete_rows_by_criteria(
+    filename: str,
+    request: BaseModel,
+    user_id: str = Header(..., alias="X-User-ID")
+):
+    """Delete rows matching specific criteria"""
+    from models.requests import DeleteRowsByCriteriaRequest as DeleteRowsByCriteriaRequestModel
+    request_obj = DeleteRowsByCriteriaRequestModel(criteria=request.criteria, description=request.description)
+    result = await dataset_controller.delete_rows_by_criteria(user_id, filename, request_obj)
+    return {
+        "message": f"Deleted {result['changes']['deleted_rows']} rows matching criteria",
+        "result": result
+    }
+
+
+@app.post("/datasets/{filename}/revert/{version_id}")
+async def revert_dataset_to_version(
+    filename: str,
+    version_id: str,
+    user_id: str = Header(..., alias="X-User-ID"),
+    description: Optional[str] = Query(None, description="Description of the revert operation")
+):
+    """Revert dataset to a specific version"""
+    result = await dataset_controller.revert_dataset(user_id, filename, version_id, description)
+    return {
+        "message": f"Successfully reverted to version {version_id}",
+        "result": result
+    }
+
+
+@app.get("/datasets/{filename}/diff")
+async def get_version_diff(
+    filename: str,
+    version1: str = Query(..., description="First version ID"),
+    version2: str = Query(..., description="Second version ID"),
+    user_id: str = Header(..., alias="X-User-ID")
+):
+    """Get differences between two versions of a dataset"""
+    return await dataset_controller.compare_versions(user_id, filename, version1, version2)
+
+
+@app.post("/analyze-modified/{filename}")
+async def analyze_modified_dataset(
+    filename: str,
+    background_tasks: BackgroundTasks,
+    user_id: str = Header(..., alias="X-User-ID"),
+    version_id: Optional[str] = Query(None, description="Version to analyze (default: current)"),
+    min_density: Optional[float] = None,
+    prompt: Optional[str] = None,
+):
+    """Run analysis on a modified version of dataset"""
+    if not user_id:
+        raise HTTPException(status_code=400, detail="X-User-ID header required")
+    
+    try:
+        # Load the dataset version through controller
+        from services.dataset_service_clean import DatasetService
+        dataset_service_clean = DatasetService()
+        df = dataset_service_clean.load_dataset(user_id, filename, version_id)
+        if df is None:
+            raise HTTPException(status_code=404, detail="Dataset version not found")
+        
+        # Create temporary file for analysis
+        import tempfile
+        import os
+        temp_fd, temp_path = tempfile.mkstemp(suffix='.csv')
+        os.close(temp_fd)
+        df.to_csv(temp_path, index=False)
+        
+        # Create analysis job
+        version_suffix = f"_v{version_id}" if version_id else "_current"
+        job_filename = f"{filename}{version_suffix}"
+        job_id = analysis_service.create_job(job_filename, min_density, prompt)
+        
+        # Create wrapper to track analysis completion
+        async def run_analysis_with_tracking():
+            try:
+                await analysis_service.run_analysis(
+                    job_id, temp_path, notification_service, min_density, prompt
+                )
+                # Update user's file analysis count when complete
+                from services.user_service_clean import UserService
+                user_service_clean = UserService()
+                user_service_clean.update_file_analysis(user_id, filename)
+                # Clean up temp file
+                os.unlink(temp_path)
+            except Exception as e:
+                print(f"Analysis failed for user {user_id}, file {filename}: {e}")
+                # Clean up temp file on error
+                if os.path.exists(temp_path):
+                    os.unlink(temp_path)
+                raise
+
+        background_tasks.add_task(run_analysis_with_tracking)
+        
+        # Update user activity through controller
+        await user_controller.get_user_stats(user_id)  # This updates activity
+        
+        return AnalysisResponse(
+            job_id=job_id,
+            status="queued",
+            message=f"Analysis started for {job_filename}",
+            timestamp=datetime.now(),
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to start analysis: {str(e)}")
 
 
 if __name__ == "__main__":

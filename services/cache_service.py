@@ -2,7 +2,7 @@
 
 from typing import Dict
 
-from redis_cache import RedisEmbeddingCache
+from services.redis_cache import RedisEmbeddingCache
 
 
 class CacheService:

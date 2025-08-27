@@ -8,10 +8,10 @@ from typing import Dict, Optional
 
 import numpy as np
 
-from graph_matcher import GraphMatcher
-from hyperparameter_tuner import HyperparameterTuner
-from preprocess_embeddings import EmbeddingPreprocessor
-from semantic_person_deduplicator import SemanticPersonDeduplicator
+from services.graph_matcher import GraphMatcher
+from services.scoring.graph_scorer import GraphScorer
+from services.data.embedding_builder import EmbeddingBuilder
+from services.semantic_person_deduplicator import SemanticPersonDeduplicator
 
 
 class AnalysisService:
@@ -124,39 +124,22 @@ class AnalysisService:
             )
             matcher.load_data()
 
-            # STEP 1: Semantic deduplication to create curated tags
+            # STEP 1: Preprocess tags with semantic deduplication
             self.update_job_status(
-                job_id, "processing", "Running semantic tag deduplication..."
+                job_id, "processing", "Preprocessing tags and embeddings..."
             )
             await notification_service.broadcast_job_update(
                 job_id,
                 {
                     "status": "processing",
-                    "progress": "Running semantic tag deduplication...",
+                    "progress": "Preprocessing tags and embeddings...",
                 },
             )
 
-            deduplicator = SemanticPersonDeduplicator()
-            await deduplicator.run_semantic_deduplication(csv_path, threshold=0.75)
+            embedding_builder = EmbeddingBuilder()
+            await embedding_builder.preprocess_tags(csv_path, similarity_threshold=0.75)
 
-            # STEP 2: Preprocess embeddings for curated tags only
-            self.update_job_status(
-                job_id, "processing", "Preprocessing curated tag embeddings..."
-            )
-            await notification_service.broadcast_job_update(
-                job_id,
-                {
-                    "status": "processing",
-                    "progress": "Preprocessing curated tag embeddings...",
-                },
-            )
-
-            preprocessor = EmbeddingPreprocessor()
-            await preprocessor.preprocess_all_embeddings(
-                csv_path
-            )  # Now uses curated tags
-
-            # STEP 3: Create feature embeddings (now uses cached embeddings)
+            # STEP 2: Create feature embeddings
             self.update_job_status(
                 job_id, "processing", "Creating feature embeddings..."
             )
@@ -166,51 +149,25 @@ class AnalysisService:
             )
             feature_embeddings = await matcher.embed_features()
 
-            # Tune hyperparameters based on user prompt (if provided)
+            # STEP 3: Create modern graph with weight tuning
+            self.update_job_status(job_id, "processing", "Building optimized graph...")
+            await notification_service.broadcast_job_update(
+                job_id,
+                {
+                    "status": "processing",
+                    "progress": "Building optimized graph with weight tuning...",
+                },
+            )
+            
+            # Create modern graph using GraphBuilder's create_graph with user prompt for weight tuning
+            await matcher.create_graph(feature_embeddings, prompt)
+            
+            # Store tuning info if prompt was provided
             if prompt:
-                self.update_job_status(
-                    job_id, "processing", "Tuning hyperparameters for user intent..."
-                )
-                await notification_service.broadcast_job_update(
-                    job_id,
-                    {
-                        "status": "processing",
-                        "progress": "Tuning hyperparameters for user intent...",
-                    },
-                )
-
-                tuner = HyperparameterTuner()
-                tuned_weights = await tuner.tune_and_apply(prompt)
-
-                # Store the tuned weights in job metadata
+                graph_scorer = GraphScorer()
+                tuned_weights = await graph_scorer.get_tuned_2plus2_weights(prompt)
                 self.jobs[job_id]["tuned_weights"] = tuned_weights
                 self.jobs[job_id]["user_prompt"] = prompt
-
-            # Choose graph creation method based on settings
-            use_faiss = os.getenv("USE_FAISS_OPTIMIZATION", "false").lower() == "true"
-            if use_faiss:
-                self.update_job_status(
-                    job_id, "processing", "Building FAISS-optimized graph..."
-                )
-                await notification_service.broadcast_job_update(
-                    job_id,
-                    {
-                        "status": "processing",
-                        "progress": "Building FAISS-optimized similarity graph...",
-                    },
-                )
-                top_k = int(os.getenv("FAISS_TOP_K", "50"))
-                matcher.create_graph_faiss(feature_embeddings, top_k=top_k)
-            else:
-                self.update_job_status(job_id, "processing", "Building graph...")
-                await notification_service.broadcast_job_update(
-                    job_id,
-                    {
-                        "status": "processing",
-                        "progress": "Building similarity graph...",
-                    },
-                )
-                matcher.create_graph(feature_embeddings)
 
             self.update_job_status(job_id, "processing", "Finding dense subgraph...")
             await notification_service.broadcast_job_update(
