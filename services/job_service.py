@@ -2,7 +2,7 @@ import json
 import logging
 import uuid
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import List, Optional, Dict
 
 from models.job import Job, JobConfiguration, JobResult, JobStats, JobStatus, JobType
 from services.redis.redis_cache import RedisCache
@@ -325,3 +325,90 @@ class JobService:
         except Exception as e:
             logger.error(f"Error saving job {job.job_id}: {e}")
             return False
+
+    def list_jobs_with_details(
+        self, status: Optional[str] = None, limit: Optional[int] = 50
+    ) -> Dict:
+        """List all jobs with optional status filter and detailed formatting"""
+        try:
+            status_filter = None
+            if status:
+                status_filter = JobStatus(status)
+
+            jobs = (
+                self.get_jobs_by_status(status_filter, limit) if status_filter else []
+            )
+            if not status_filter:
+                jobs = self.get_active_jobs()
+
+            job_data = []
+            for job in jobs:
+                job_data.append(
+                    {
+                        "job_id": job.job_id,
+                        "user_id": job.user_id,
+                        "file_id": job.file_id,
+                        "title": job.title,
+                        "status": job.status.value,
+                        "progress": job.progress,
+                        "created_at": job.created_at.isoformat(),
+                        "duration": job.get_duration(),
+                    }
+                )
+
+            return {"jobs": job_data, "total": len(job_data), "status_code": 200}
+        except Exception:
+            jobs = self.get_active_jobs()
+            return {
+                "jobs": [job.to_dict() for job in jobs],
+                "total": len(jobs),
+                "status_code": 200,
+            }
+
+    def get_user_jobs_with_details(
+        self, user_id: str, file_service, status: Optional[str] = None
+    ) -> Dict:
+        """Get all jobs for a specific user with detailed formatting"""
+        try:
+            status_filter = None
+            if status:
+                status_filter = JobStatus(status)
+
+            jobs = self.get_user_jobs(user_id, status_filter)
+            job_data = []
+
+            for job in jobs:
+                job_dict = {
+                    "job_id": job.job_id,
+                    "file_id": job.file_id,
+                    "title": job.title,
+                    "status": job.status.value,
+                    "progress": job.progress,
+                    "created_at": job.created_at.isoformat(),
+                    "started_at": (
+                        job.started_at.isoformat() if job.started_at else None
+                    ),
+                    "completed_at": (
+                        job.completed_at.isoformat() if job.completed_at else None
+                    ),
+                    "error_message": job.error_message,
+                    "configuration": (
+                        job.configuration.to_dict() if job.configuration else {}
+                    ),
+                }
+
+                file_obj = file_service.get_file(job.file_id)
+                if file_obj:
+                    job_dict["filename"] = file_obj.filename
+
+                job_data.append(job_dict)
+
+            return {
+                "user_id": user_id,
+                "jobs": job_data,
+                "total_jobs": len(job_data),
+                "status_code": 200,
+            }
+        except Exception as e:
+            jobs = self.get_user_jobs(user_id)
+            return {"user_id": user_id, "jobs": jobs, "status_code": 500}

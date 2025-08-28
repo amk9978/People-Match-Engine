@@ -1,6 +1,6 @@
 import json
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Dict
 
 from models.user import User, UserStats
 from services.redis.redis_cache import RedisCache
@@ -187,3 +187,51 @@ class UserService:
             return True
         except Exception:
             return False
+
+    def get_current_user_profile(self, user_id: str) -> Dict:
+        """Get current user profile and stats"""
+        self.update_user_activity(user_id)
+        stats = self.get_user_stats(user_id)
+        if not stats:
+            return None
+        return stats.to_dict()
+
+    def get_user_files_with_details(self, user_id: str, file_service) -> Dict:
+        """Get user's uploaded files with detailed information"""
+        self.update_user_activity(user_id)
+        file_ids = self.get_user_files(user_id)
+
+        files = []
+        for file_id in file_ids:
+            file_obj = file_service.get_file(file_id)
+            if file_obj:
+                stats = file_service.get_file_stats(file_id)
+                files.append(
+                    {
+                        "file_id": file_obj.file_id,
+                        "filename": file_obj.filename,
+                        "created_at": file_obj.created_at.isoformat(),
+                        "updated_at": file_obj.updated_at.isoformat(),
+                        "total_versions": file_obj.total_versions,
+                        "total_jobs": file_obj.total_jobs,
+                        "file_size": stats.current_size if stats else 0,
+                    }
+                )
+
+        return {"user_id": user_id, "files": files, "total_files": len(files)}
+
+    def delete_user_file_with_validation(
+        self, user_id: str, file_id: str, file_service
+    ) -> Dict:
+        """Delete a user's uploaded file with validation"""
+        self.update_user_activity(user_id)
+
+        user_files = self.get_user_files(user_id)
+        if file_id not in user_files:
+            return {"error": "File not found", "status_code": 404}
+
+        if file_service.delete_file(file_id):
+            self.remove_user_file(user_id, file_id)
+            return {"message": "File deleted successfully", "status_code": 200}
+        else:
+            return {"error": "Failed to delete file", "status_code": 500}

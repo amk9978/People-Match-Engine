@@ -311,5 +311,103 @@ class AnalysisService:
             if os.path.exists(csv_path):
                 os.remove(csv_path)
 
+    async def process_file_upload_and_analysis(
+        self,
+        file,
+        user_id: str,
+        min_density: Optional[float] = None,
+        prompt: Optional[str] = None,
+        file_service=None,
+        user_service=None,
+        job_service=None,
+        notification_service=None,
+    ) -> Dict:
+        """Complete file upload and analysis orchestration"""
+        from io import StringIO
+
+        import pandas as pd
+
+        from models.job import JobConfiguration
+        from models.job import JobStatus as JobStatusEnum
+        from models.job import JobType
+
+        try:
+            # Read and validate file
+            contents = await file.read()
+            df = pd.read_csv(StringIO(contents.decode("utf-8")))
+
+            if df.empty:
+                raise ValueError("Dataset cannot be empty")
+
+            # Create file record
+            file_obj = file_service.create_file(
+                user_id, file.filename, file.filename, df, "Initial upload"
+            )
+
+            # Update user records
+            user_service.add_user_file(user_id, file_obj.file_id)
+            user_service.update_user_activity(user_id)
+
+            # Save temporary file for processing
+            await file.seek(0)
+            temp_path = await file_service.save_uploaded_file(file)
+
+            # Create job configuration
+            config = JobConfiguration(
+                min_density=min_density,
+                prompt=prompt,
+                analysis_type="subgraph_analysis",
+            )
+
+            # Create analysis job
+            job = job_service.create_job(
+                user_id=user_id,
+                file_id=file_obj.file_id,
+                job_type=JobType.ANALYSIS,
+                title=f"Analysis of {file.filename}",
+                configuration=config,
+            )
+
+            return {
+                "job_id": job.job_id,
+                "temp_path": temp_path,
+                "user_id": user_id,
+                "filename": file.filename,
+                "config": config,
+            }
+
+        except Exception as e:
+            raise ValueError(f"Failed to process file upload: {str(e)}")
+
+    async def run_analysis_with_tracking(
+        self,
+        job_id: str,
+        temp_path: str,
+        user_id: str,
+        filename: str,
+        min_density: Optional[float] = None,
+        prompt: Optional[str] = None,
+        job_service=None,
+        user_service=None,
+        notification_service=None,
+    ):
+        """Run analysis with proper status tracking and error handling"""
+        from models.job import JobStatus as JobStatusEnum
+
+        try:
+            job_service.update_job_status(job_id, JobStatusEnum.RUNNING)
+
+            await self.run_analysis(
+                job_id, temp_path, notification_service, min_density, prompt
+            )
+
+            user_service.increment_user_analyses(user_id)
+            job_service.update_job_status(job_id, JobStatusEnum.COMPLETED)
+
+        except Exception as e:
+            logger.error(f"Analysis failed for user {user_id}, file {filename}: {e}")
+            job_service.update_job_status(job_id, JobStatusEnum.FAILED, str(e))
+            raise
+
 
 analysis_service = AnalysisService()

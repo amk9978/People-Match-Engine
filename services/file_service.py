@@ -402,3 +402,96 @@ class FileService:
     def validate_csv_file(filename: str) -> bool:
         """Validate if file is CSV"""
         return filename.lower().endswith(".csv")
+
+    def list_user_files_with_details(self, user_id: str, user_service) -> Dict:
+        """List all files for the current user with details"""
+        user_service.update_user_activity(user_id)
+        files = self.get_user_files(user_id)
+
+        datasets = []
+        for file_obj in files:
+            stats = self.get_file_stats(file_obj.file_id)
+            datasets.append(
+                {
+                    "file_id": file_obj.file_id,
+                    "filename": file_obj.filename,
+                    "created_at": file_obj.created_at.isoformat(),
+                    "updated_at": file_obj.updated_at.isoformat(),
+                    "total_versions": file_obj.total_versions,
+                    "total_jobs": file_obj.total_jobs,
+                    "current_size": stats.current_size if stats else 0,
+                }
+            )
+
+        return {"user_id": user_id, "files": datasets, "total_files": len(datasets)}
+
+    def get_file_info_with_validation(
+        self, file_id: str, user_id: str, user_service
+    ) -> Dict:
+        """Get detailed information about a specific file with validation"""
+        user_service.update_user_activity(user_id)
+
+        user_files = user_service.get_user_files(user_id)
+        if file_id not in user_files:
+            return {"error": "File not found", "status_code": 404}
+
+        file_obj = self.get_file(file_id)
+        if not file_obj:
+            return {"error": "File not found", "status_code": 404}
+
+        stats = self.get_file_stats(file_id)
+        versions = self.get_file_versions(file_id)
+
+        return {
+            "file_id": file_obj.file_id,
+            "filename": file_obj.filename,
+            "created_at": file_obj.created_at.isoformat(),
+            "updated_at": file_obj.updated_at.isoformat(),
+            "total_versions": len(versions),
+            "total_jobs": file_obj.total_jobs,
+            "current_size": stats.current_size if stats else 0,
+            "versions": [
+                {
+                    "version_id": v.version_id,
+                    "version_number": v.version_number,
+                    "created_at": v.created_at.isoformat(),
+                    "description": v.description,
+                    "row_count": v.row_count,
+                    "column_count": v.column_count,
+                }
+                for v in versions
+            ],
+            "status_code": 200,
+        }
+
+    def get_file_preview_with_validation(
+        self,
+        file_id: str,
+        user_id: str,
+        user_service,
+        version_id: Optional[str] = None,
+        limit: int = 10,
+    ) -> Dict:
+        """Get preview of file data with sample rows and validation"""
+        user_service.update_user_activity(user_id)
+
+        user_files = user_service.get_user_files(user_id)
+        if file_id not in user_files:
+            return {"error": "File not found", "status_code": 404}
+
+        df = self.load_file_data(file_id, version_id)
+        if df is None:
+            return {"error": "File data not found", "status_code": 404}
+
+        preview_df = df.head(limit)
+
+        return {
+            "file_id": file_id,
+            "version_id": version_id,
+            "total_rows": len(df),
+            "total_columns": len(df.columns),
+            "columns": df.columns.tolist(),
+            "preview_rows": preview_df.to_dict("records"),
+            "preview_count": len(preview_df),
+            "status_code": 200,
+        }
