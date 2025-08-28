@@ -1,0 +1,63 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install isort black
+
+      - name: Run black
+        run: black --check --diff .
+
+  deploy:
+    needs: lint
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up SSH key and deploy
+        shell: bash
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.DOCKER_SSH_PRIVATE_KEY }}
+          SSH_PUBLIC_KEY: ${{ secrets.DOCKER_SSH_PUBLIC_KEY }}
+        run: |
+          install -m 600 -D /dev/null ~/.ssh/id_rsa
+          install -m 644 -D /dev/null ~/.ssh/id_rsa.pub
+          echo "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_rsa
+          echo "$SSH_PUBLIC_KEY" | tr -d '\r' > ~/.ssh/id_rsa.pub
+          chmod 600 ~/.ssh/id_rsa ~/.ssh/id_rsa.pub
+          eval $(ssh-agent -s)
+          ssh-add ~/.ssh/id_rsa
+          
+          # Copy project files to server
+          rsync -avz --delete \
+            -e "ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no" \
+            ./ ubuntu@54.242.164.134:~/match_engine/
+          
+          # SSH into server and deploy
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ubuntu@54.242.164.134 << 'EOF'
+            cd ~/match_engine
+            docker build -t match_engine:latest .
+            docker-compose down || true
+            docker-compose up -d
+          EOF
+          
+          rm -f ~/.ssh/id_rsa ~/.ssh/id_rsa.pub

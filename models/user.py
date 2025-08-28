@@ -2,46 +2,61 @@
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 
 
 @dataclass
 class User:
-    """User model"""
+    id: str
+    created_at: datetime = None
+
+    def __post_init__(self):
+        if self.created_at is None:
+            self.created_at = datetime.now()
+
+
+@dataclass
+class UserStats:
+    """User statistics - the only user data we need to track"""
 
     user_id: str
-    created_at: datetime
-    last_active: datetime
     total_files: int = 0
+    total_jobs: int = 0
     total_analyses: int = 0
+    storage_used: int = 0
+    last_activity: Optional[datetime] = None
+
+    def __post_init__(self):
+        if self.last_activity is None:
+            self.last_activity = datetime.now()
 
     def to_dict(self) -> Dict:
         return {
             "user_id": self.user_id,
-            "created_at": self.created_at.isoformat(),
-            "last_active": self.last_active.isoformat(),
             "total_files": self.total_files,
+            "total_jobs": self.total_jobs,
             "total_analyses": self.total_analyses,
-        }
-
-
-@dataclass
-class UserFile:
-    """User file model"""
-
-    filename: str
-    uploaded_at: datetime
-    file_size: int
-    analysis_count: int = 0
-    last_analysis: Optional[datetime] = None
-
-    def to_dict(self) -> Dict:
-        return {
-            "filename": self.filename,
-            "uploaded_at": self.uploaded_at.isoformat(),
-            "file_size": self.file_size,
-            "analysis_count": self.analysis_count,
-            "last_analysis": (
-                self.last_analysis.isoformat() if self.last_analysis else None
+            "storage_used": self.storage_used,
+            "last_activity": (
+                self.last_activity.isoformat() if self.last_activity else None
             ),
         }
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> "UserStats":
+        return cls(
+            user_id=data["user_id"],
+            total_files=data.get("total_files", 0),
+            total_jobs=data.get("total_jobs", 0),
+            total_analyses=data.get("total_analyses", 0),
+            storage_used=data.get("storage_used", 0),
+            last_activity=(
+                datetime.fromisoformat(data["last_activity"])
+                if data.get("last_activity")
+                else None
+            ),
+        )
+
+    def update_activity(self):
+        """Update last activity timestamp"""
+        self.last_activity = datetime.now()

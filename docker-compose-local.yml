@@ -12,19 +12,6 @@ services:
       - redis_data:/bitnami/redis/data
     restart: unless-stopped
 
-  matcher:
-    build: .
-    container_name: matcher
-    network_mode: host
-    env_file:
-      - .env
-    volumes:
-      - matcher_data:/app/data
-    restart: unless-stopped
-
 volumes:
   redis_data:
-    driver: local
-
-  matcher_data:
     driver: local

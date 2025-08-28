@@ -1,4 +1,3 @@
-
 import json
 import logging
 from typing import Dict
@@ -60,5 +59,4 @@ class NotificationService:
         }
 
 
-# Singleton instance
 notification_service = NotificationService()

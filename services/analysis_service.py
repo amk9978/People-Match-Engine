@@ -1,15 +1,14 @@
 import logging
 import os
-import tempfile
-import uuid
-from datetime import datetime
 from typing import Dict, List, Optional
 
 import numpy as np
 
-from services.data.embedding_builder import EmbeddingBuilder
-from services.graph_matcher import GraphMatcher
-from services.redis_cache import RedisEmbeddingCache
+from models.job import JobStatus
+from services.graph.graph_builder import GraphBuilder
+from services.job_service import JobService
+from services.preprocessing.embedding_builder import EmbeddingBuilder
+from services.redis.redis_cache import RedisEmbeddingCache
 
 logger = logging.getLogger(__name__)
 
@@ -18,9 +17,8 @@ class AnalysisService:
     """Service for handling graph analysis operations"""
 
     def __init__(self):
-        self.jobs = {}
-        self.cache = RedisEmbeddingCache(key_prefix="file_mapping")
         self.results_cache = RedisEmbeddingCache(key_prefix="job_results")
+        self.job_service = JobService()
 
     def _serialize_numpy(self, obj):
         """Convert numpy objects and other non-JSON types to JSON serializable types"""
@@ -39,37 +37,32 @@ class AnalysisService:
         return obj
 
     def _store_file_mapping(self, file_id: str, filename: str):
-        """Store file_id to filename mapping in Redis"""
-        try:
-            cache_key = f"file_id_to_name_{file_id}"
-            self.cache.set(cache_key, filename)
+        """Legacy method - file mappings now handled by FileService"""
 
-            # Also store reverse mapping for lookups
-            reverse_key = (
-                f"filename_to_id_{filename.replace('/', '_').replace(' ', '_')}"
-            )
-            self.cache.set(reverse_key, file_id)
-        except Exception as e:
-            logger.info(f"Warning: Could not store file mapping: {e}")
+        pass
 
     def get_filename_by_file_id(self, file_id: str) -> Optional[str]:
-        """Get filename by file_id from Redis"""
+        """Get filename by file_id - now uses FileService"""
         try:
-            cache_key = f"file_id_to_name_{file_id}"
-            return self.cache.get(cache_key)
+            from services.file_service import FileService
+
+            file_service = FileService()
+            file_obj = file_service.get_file(file_id)
+            return file_obj.filename if file_obj else None
         except Exception as e:
             logger.info(
                 f"Warning: Could not retrieve filename for file_id {file_id}: {e}"
             )
             return None
 
-    def get_file_id_by_filename(self, filename: str) -> Optional[str]:
-        """Get file_id by filename from Redis"""
+    def get_file_id_by_filename(self, user_id: str, filename: str) -> Optional[str]:
+        """Get file_id by filename - now uses FileService"""
         try:
-            reverse_key = (
-                f"filename_to_id_{filename.replace('/', '_').replace(' ', '_')}"
-            )
-            return self.cache.get(reverse_key)
+            from services.file_service import FileService
+
+            file_service = FileService()
+            file_obj = file_service.get_file_by_name(user_id, filename)
+            return file_obj.file_id if file_obj else None
         except Exception as e:
             logger.info(
                 f"Warning: Could not retrieve file_id for filename {filename}: {e}"
@@ -102,129 +95,128 @@ class AnalysisService:
         """Store job for user in Redis"""
         try:
             import json
-            # Store individual job
+
             job_key = f"user_job_{user_id}_{job_id}"
             job_data_serialized = {**job_data}
-            job_data_serialized['timestamp'] = job_data['timestamp'].isoformat()
+            job_data_serialized["timestamp"] = job_data["timestamp"].isoformat()
             self.results_cache.set(job_key, json.dumps(job_data_serialized))
-            
-            # Add to user's job list
+
             user_jobs_key = f"user_jobs_{user_id}"
             existing_jobs = self.results_cache.get(user_jobs_key)
             job_list = json.loads(existing_jobs) if existing_jobs else []
-            
+
             if job_id not in job_list:
                 job_list.append(job_id)
                 self.results_cache.set(user_jobs_key, json.dumps(job_list))
         except Exception as e:
-            logger.info(f"Warning: Could not store user job {job_id} for user {user_id}: {e}")
+            logger.info(
+                f"Warning: Could not store user job {job_id} for user {user_id}: {e}"
+            )
 
     def get_jobs_by_user(self, user_id: str) -> List[Dict]:
         """Get all jobs for a specific user"""
         try:
             import json
+
             user_jobs_key = f"user_jobs_{user_id}"
             job_list_str = self.results_cache.get(user_jobs_key)
-            
+
             if not job_list_str:
                 return []
-            
+
             job_ids = json.loads(job_list_str)
             jobs = []
-            
+
             for job_id in job_ids:
                 job_key = f"user_job_{user_id}_{job_id}"
                 job_data_str = self.results_cache.get(job_key)
                 if job_data_str:
                     job_data = json.loads(job_data_str)
-                    job_data['job_id'] = job_id
+                    job_data["job_id"] = job_id
                     jobs.append(job_data)
-            
-            # Sort by timestamp (newest first)
-            jobs.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
+
+            jobs.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
             return jobs
-            
+
         except Exception as e:
             logger.info(f"Warning: Could not retrieve jobs for user {user_id}: {e}")
             return []
 
-    def create_job(
-        self,
-        filename: str,
-        min_density: Optional[float] = None,
-        prompt: Optional[str] = None,
-        file_id: Optional[str] = None,
-        user_id: Optional[str] = None,
-    ) -> str:
-        """Create a new analysis job"""
-        job_id = str(uuid.uuid4())
-
-        self._store_file_mapping(file_id, filename)
-
-        job_data = {
-            "status": "queued",
-            "progress": "Job created",
-            "result": None,
-            "error": None,
-            "timestamp": datetime.now(),
-            "filename": filename,
-            "file_id": file_id,
-            "min_density": min_density,
-            "prompt": prompt,
-            "user_id": user_id,
-        }
-
-        self.jobs[job_id] = job_data
-        
-        # Store job in Redis with user_id indexing if user_id provided
-        if user_id:
-            self._store_user_job(user_id, job_id, job_data)
-
-        return job_id
-
-    def get_job(self, job_id: str) -> Optional[Dict]:
-        """Get job by ID"""
-        return self.jobs.get(job_id)
-
-    def get_all_jobs(self) -> Dict:
-        """Get all jobs summary"""
-        return {
-            "jobs": [
-                {
-                    "job_id": job_id,
-                    "status": data["status"],
-                    "timestamp": data["timestamp"],
-                    "filename": data.get("filename", "unknown"),
-                }
-                for job_id, data in self.jobs.items()
-            ]
-        }
-
-    def delete_job(self, job_id: str) -> bool:
-        """Delete a job"""
-        if job_id in self.jobs:
-            del self.jobs[job_id]
-            return True
-        return False
-
-    def update_job_status(
+    async def _update_job_and_notify(
         self,
         job_id: str,
         status: str,
         progress: str = None,
+        notification_service=None,
         result: Dict = None,
         error: str = None,
     ):
-        """Update job status"""
-        if job_id in self.jobs:
-            self.jobs[job_id]["status"] = status
+        """Update job status via JobService and broadcast notification"""
+        try:
+
+            status_enum = {
+                "processing": JobStatus.RUNNING,
+                "completed": JobStatus.COMPLETED,
+                "failed": JobStatus.FAILED,
+                "queued": JobStatus.QUEUED,
+            }.get(status)
+
+            if status_enum:
+                self.job_service.update_job_status(job_id, status_enum, error)
+
             if progress:
-                self.jobs[job_id]["progress"] = progress
+                progress_value = self._extract_progress_value(progress)
+                self.job_service.update_job_progress(job_id, progress_value)
+
             if result:
-                self.jobs[job_id]["result"] = result
-            if error:
-                self.jobs[job_id]["error"] = error
-            self.jobs[job_id]["timestamp"] = datetime.now()
+                self._store_job_result_via_service(job_id, result)
+
+            if notification_service:
+                notification_data = {"status": status}
+                if progress:
+                    notification_data["progress"] = progress
+                if result:
+                    notification_data["result"] = self._serialize_numpy(result)
+                if error:
+                    notification_data["error"] = error
+
+                await notification_service.broadcast_job_update(
+                    job_id, notification_data
+                )
+
+        except Exception as e:
+            logger.error(f"Error updating job {job_id}: {e}")
+
+    def _extract_progress_value(self, progress: str) -> float:
+        """Extract numeric progress from string"""
+        if "Step" in progress:
+            try:
+                parts = progress.split()
+                for part in parts:
+                    if "/" in part:
+                        current, total = part.split("/")
+                        return (float(current) / float(total)) * 100
+            except:
+                pass
+        elif "%" in progress:
+            try:
+                return float(progress.replace("%", ""))
+            except:
+                pass
+        return 0.0
+
+    def _store_job_result_via_service(self, job_id: str, result: Dict):
+        """Store job result via JobService"""
+        from models.job import JobResult
+
+        job_result = JobResult(
+            job_id=job_id,
+            result_data=self._serialize_numpy(result),
+            metrics=result.get("metrics", {}),
+            artifacts=result.get("artifacts", []),
+            execution_time=result.get("execution_time", 0.0),
+        )
+        self.job_service.set_job_result(job_id, job_result)
 
     async def run_analysis(
         self,
@@ -236,131 +228,88 @@ class AnalysisService:
     ):
         """Run graph analysis with progress notifications"""
         try:
-            self.update_job_status(job_id, "processing", "Initializing GraphMatcher...")
-            await notification_service.broadcast_job_update(
+            await self._update_job_and_notify(
                 job_id,
-                {"status": "processing", "progress": "Initializing GraphMatcher..."},
+                "processing",
+                "Initializing GraphBuilder...",
+                notification_service,
             )
 
-            matcher = GraphMatcher(csv_path, min_density)
+            graph_builder = GraphBuilder(csv_path, min_density)
 
-            self.update_job_status(job_id, "processing", "Loading data...")
-            await notification_service.broadcast_job_update(
-                job_id, {"status": "processing", "progress": "Loading data..."}
+            await self._update_job_and_notify(
+                job_id, "processing", "Loading data...", notification_service
             )
-            matcher.load_data()
+            graph_builder.load_data()
 
-            # STEP 1: Preprocess tags with semantic deduplication
-            self.update_job_status(
-                job_id, "processing", "Preprocessing tags and embeddings..."
-            )
-            await notification_service.broadcast_job_update(
+            await self._update_job_and_notify(
                 job_id,
-                {
-                    "status": "processing",
-                    "progress": "Preprocessing tags and embeddings...",
-                },
+                "processing",
+                "Preprocessing tags and embeddings...",
+                notification_service,
             )
 
             embedding_builder = EmbeddingBuilder()
             await embedding_builder.preprocess_tags(csv_path, similarity_threshold=0.75)
 
-            # STEP 2: Create feature embeddings
-            self.update_job_status(
-                job_id, "processing", "Creating feature embeddings..."
-            )
-            await notification_service.broadcast_job_update(
+            await self._update_job_and_notify(
                 job_id,
-                {"status": "processing", "progress": "Creating feature embeddings..."},
+                "processing",
+                "Creating feature embeddings...",
+                notification_service,
             )
-            feature_embeddings = await matcher.embed_features()
+            feature_embeddings = await graph_builder.embed_features()
 
-            # STEP 3: Create modern graph with weight tuning
-            self.update_job_status(job_id, "processing", "Building optimized graph...")
-            await notification_service.broadcast_job_update(
+            await self._update_job_and_notify(
                 job_id,
-                {
-                    "status": "processing",
-                    "progress": "Building optimized graph with weight tuning...",
-                },
+                "processing",
+                "Building optimized graph with weight tuning...",
+                notification_service,
             )
 
-            file_id = self.jobs[job_id]["file_id"]
+            job = self.job_service.get_job(job_id)
+            file_id = job.file_id if job else None
+            if not file_id:
+                raise ValueError(f"No file_id found for job {job_id}")
 
-            # Create modern graph using GraphBuilder's create_graph with user prompt for weight tuning
-            await matcher.create_graph(feature_embeddings, file_id, prompt)
-            self.update_job_status(job_id, "processing", "Finding dense subgraph...")
-            await notification_service.broadcast_job_update(
+            await graph_builder.create_graph(feature_embeddings, job_id, prompt)
+            await self._update_job_and_notify(
+                job_id, "processing", "Finding dense subgraph...", notification_service
+            )
+            largest_dense_nodes, density = graph_builder.find_largest_dense_subgraph()
+
+            await self._update_job_and_notify(
                 job_id,
-                {"status": "processing", "progress": "Finding dense subgraph..."},
+                "processing",
+                "Analyzing results and generating insights...",
+                notification_service,
             )
-            largest_dense_nodes, density = matcher.find_largest_dense_subgraph()
-
-            self.update_job_status(job_id, "processing", "Analyzing results...")
-            await notification_service.broadcast_job_update(
-                job_id,
-                {
-                    "status": "processing",
-                    "progress": "Analyzing results and generating insights...",
-                },
-            )
-            result = matcher.get_subgraph_info(largest_dense_nodes, feature_embeddings)
-
-            recommendations = matcher.get_expansion_recommendations(
+            result = graph_builder.get_subgraph_info(
                 largest_dense_nodes, feature_embeddings
             )
-            result["expansion_recommendations"] = recommendations
+
+            result["expansion_recommendations"] = []
 
             if os.path.exists(csv_path):
                 os.remove(csv_path)
 
             serialized_result = self._serialize_numpy(result)
 
-            # Store result in Redis for future retrieval
-            self._store_job_result(job_id, serialized_result)
-
-            self.update_job_status(
-                job_id, "completed", "Analysis complete", serialized_result
-            )
-            await notification_service.broadcast_job_update(
+            await self._update_job_and_notify(
                 job_id,
-                {
-                    "status": "completed",
-                    "progress": "Analysis complete",
-                    "result": serialized_result,
-                },
+                "completed",
+                "Analysis complete",
+                notification_service,
+                serialized_result,
             )
 
         except Exception as e:
-            self.update_job_status(job_id, "failed", f"Error: {str(e)}", error=str(e))
-
-            await notification_service.broadcast_job_update(
-                job_id,
-                {"status": "failed", "error": str(e), "progress": f"Error: {str(e)}"},
+            await self._update_job_and_notify(
+                job_id, "failed", f"Error: {str(e)}", notification_service, error=str(e)
             )
 
             if os.path.exists(csv_path):
                 os.remove(csv_path)
 
 
-class FileService:
-    """Service for handling file operations"""
-
-    @staticmethod
-    async def save_uploaded_file(file) -> str:
-        """Save uploaded file to temporary location"""
-        with tempfile.NamedTemporaryFile(
-            mode="wb", suffix=".csv", delete=False
-        ) as tmp_file:
-            content = await file.read()
-            tmp_file.write(content)
-            return tmp_file.name
-
-    @staticmethod
-    def validate_csv_file(filename: str) -> bool:
-        """Validate if file is CSV"""
-        return filename.lower().endswith(".csv")
-
-
 analysis_service = AnalysisService()
-file_service = FileService()

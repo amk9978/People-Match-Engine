@@ -18,14 +18,14 @@ class SubgraphAnalyzer:
         pass
 
     def get_subgraph_info(
-            self,
-            nodes: Set[int],
-            feature_embeddings: Dict[str, np.ndarray],
-            df: pd.DataFrame,
-            graph: nx.Graph,
-            matrix_builder=None,
-            tuned_w_s: Optional[Dict[str, float]] = None,
-            tuned_w_c: Optional[Dict[str, float]] = None,
+        self,
+        nodes: Set[int],
+        feature_embeddings: Dict[str, np.ndarray],
+        df: pd.DataFrame,
+        graph: nx.Graph,
+        matrix_builder=None,
+        tuned_w_s: Optional[Dict[str, float]] = None,
+        tuned_w_c: Optional[Dict[str, float]] = None,
     ) -> Dict:
         """Get detailed information about a subgraph"""
         if not nodes:
@@ -66,7 +66,6 @@ class SubgraphAnalyzer:
                 }
             )
 
-        # Calculate comprehensive insights with real data values
         hybrid_insights = {}
         complementarity_insights = {}
         feature_importance_analysis = {}
@@ -76,26 +75,23 @@ class SubgraphAnalyzer:
             complementarity_insights = self.analyze_complementarity_centroids(
                 nodes, matrix_builder, tuned_w_s, tuned_w_c
             )
-            # Combine embedding and complementarity insights
+
             hybrid_insights = self.analyze_hybrid_centroids(
                 nodes, feature_embeddings, matrix_builder, tuned_w_s, tuned_w_c
             )
-            # Analyze which features contribute most to density
+
             feature_importance_analysis = self.analyze_feature_importance(
                 nodes, graph, matrix_builder, tuned_w_s, tuned_w_c
             )
-            # Extract actual dataset values for insights
+
             dataset_values_analysis = self.analyze_dataset_values(
                 nodes, df, matrix_builder
             )
 
-        # Enhanced weighted community detection
         weighted_communities = self.detect_weighted_communities(nodes, graph)
 
-        # Maximum weight cycle detection
         max_cycle = self.find_maximum_weight_cycle(nodes, graph)
 
-        # Stress/MDS layout for visualization
         layout_coords = self.compute_stress_layout(nodes, graph)
 
         result = {
@@ -118,7 +114,6 @@ class SubgraphAnalyzer:
             "stress_layout": layout_coords,
         }
 
-        # Keep legacy subgroups for backward compatibility
         legacy_subgroups = self.analyze_subgroups(nodes, graph, df)
         result.update(legacy_subgroups)
 
@@ -141,7 +136,7 @@ class SubgraphAnalyzer:
         return total_weight / max_possible_edges if max_possible_edges > 0 else 0.0
 
     def analyze_subgraph_centroids(
-            self, nodes: Set[int], feature_embeddings: Dict[str, np.ndarray]
+        self, nodes: Set[int], feature_embeddings: Dict[str, np.ndarray]
     ) -> Dict:
         """Analyze centroids to identify which feature values make the subgraph dense"""
         centroids = {}
@@ -150,8 +145,6 @@ class SubgraphAnalyzer:
             subgraph_embeddings = embeddings[list(nodes)]
             centroid = np.mean(subgraph_embeddings, axis=0)
 
-            # Find which nodes in the subgraph are closest to centroid
-            # These represent the "core" characteristics that drive density
             closest_to_centroid = self._find_nodes_closest_to_centroid(
                 nodes, embeddings, centroid, feature_name
             )
@@ -165,12 +158,12 @@ class SubgraphAnalyzer:
         return centroids
 
     def _find_nodes_closest_to_centroid(
-            self,
-            nodes: Set[int],
-            embeddings: np.ndarray,
-            centroid: np.ndarray,
-            feature_name: str,
-            top_k: int = 5,
+        self,
+        nodes: Set[int],
+        embeddings: np.ndarray,
+        centroid: np.ndarray,
+        feature_name: str,
+        top_k: int = 5,
     ) -> List[Dict]:
         """Find nodes within subgraph that are closest to centroid - these drive density"""
         if not nodes:
@@ -188,7 +181,7 @@ class SubgraphAnalyzer:
             embedding_norm = np.linalg.norm(node_embedding)
             if embedding_norm > 0:
                 similarity = np.dot(node_embedding, centroid) / (
-                        embedding_norm * centroid_norm
+                    embedding_norm * centroid_norm
                 )
                 similarities.append(
                     {
@@ -202,11 +195,11 @@ class SubgraphAnalyzer:
         return similarities[:top_k]
 
     def analyze_complementarity_centroids(
-            self,
-            nodes: Set[int],
-            matrix_builder,
-            tuned_w_s: Dict[str, float],
-            tuned_w_c: Dict[str, float],
+        self,
+        nodes: Set[int],
+        matrix_builder,
+        tuned_w_s: Dict[str, float],
+        tuned_w_c: Dict[str, float],
     ) -> Dict:
         """Analyze complementarity patterns within the subgraph using tuned weights"""
         if not nodes or len(nodes) < 2:
@@ -228,12 +221,12 @@ class SubgraphAnalyzer:
         complementarity_patterns = {}
 
         for category in feature_categories:
-            # Calculate all pairwise complementarity scores within the subgraph
+
             scores = []
             relationships = []
 
             for i, node_i in enumerate(node_list):
-                for j, node_j in enumerate(node_list[i + 1:], start=i + 1):
+                for j, node_j in enumerate(node_list[i + 1 :], start=i + 1):
                     comp_scores = matrix_builder.get_all_complementarities(
                         node_i, node_j
                     )
@@ -250,7 +243,7 @@ class SubgraphAnalyzer:
                         )
 
             if scores:
-                # Sort relationships by complementarity score
+
                 relationships.sort(key=lambda x: x["score"], reverse=True)
 
                 complementarity_patterns[category] = {
@@ -275,7 +268,6 @@ class SubgraphAnalyzer:
                     "total_pairs": 0,
                 }
 
-        # Calculate overall complementarity strength using tuned weights
         weighted_scores = []
         for category, pattern in complementarity_patterns.items():
             if pattern["total_pairs"] > 0:
@@ -285,7 +277,6 @@ class SubgraphAnalyzer:
             float(np.mean(weighted_scores)) if weighted_scores else 0.0
         )
 
-        # Find strongest complementarity category
         strongest_category = max(
             complementarity_patterns.keys(),
             key=lambda cat: complementarity_patterns[cat]["weighted_avg"],
@@ -302,7 +293,7 @@ class SubgraphAnalyzer:
         }
 
     def analyze_subgroups(
-            self, nodes: Set[int], graph: nx.Graph, df: pd.DataFrame
+        self, nodes: Set[int], graph: nx.Graph, df: pd.DataFrame
     ) -> Dict:
         """Analyze cohesive subgroups within the dense subgraph"""
         if len(nodes) < 4:
@@ -368,7 +359,6 @@ class SubgraphAnalyzer:
                     }
                 )
 
-        # Sort by connection strength
         subgroups.sort(key=lambda x: x["connection_strength"], reverse=True)
 
         avg_density = total_density / len(subgroups) if subgroups else 0.0
@@ -394,7 +384,7 @@ class SubgraphAnalyzer:
         communities_results = {}
 
         try:
-            # Method 1: Louvain algorithm (best for weighted graphs)
+
             import networkx.algorithms.community as nx_comm
 
             louvain_communities = list(
@@ -408,7 +398,7 @@ class SubgraphAnalyzer:
             communities_results["louvain"] = {"communities": [], "error": str(e)}
 
         try:
-            # Method 2: Greedy modularity (weighted)
+
             greedy_communities = list(
                 nx_comm.greedy_modularity_communities(subgraph, weight="weight")
             )
@@ -422,7 +412,6 @@ class SubgraphAnalyzer:
                 "error": str(e),
             }
 
-        # Select best community detection result
         best_method = self._select_best_communities(communities_results)
 
         return {
@@ -437,7 +426,7 @@ class SubgraphAnalyzer:
         }
 
     def _analyze_communities(
-            self, communities, subgraph: nx.Graph, method_name: str
+        self, communities, subgraph: nx.Graph, method_name: str
     ) -> Dict:
         """Analyze detected communities for quality metrics"""
         analyzed_communities = []
@@ -448,13 +437,11 @@ class SubgraphAnalyzer:
 
             community_subgraph = subgraph.subgraph(community)
 
-            # Calculate community metrics
             internal_weight = sum(
                 data.get("weight", 0.0)
                 for _, _, data in community_subgraph.edges(data=True)
             )
 
-            # External connections (to nodes outside this community)
             external_weight = 0.0
             for node in community:
                 for neighbor in subgraph.neighbors(node):
@@ -482,7 +469,6 @@ class SubgraphAnalyzer:
                 }
             )
 
-        # Calculate modularity for the entire partition
         total_modularity = 0.0
         try:
             import networkx.algorithms.community as nx_comm
@@ -508,23 +494,21 @@ class SubgraphAnalyzer:
 
     def _select_best_communities(self, communities_results: Dict) -> str:
         """Select best community detection method based on modularity and other metrics"""
-        best_method = "louvain"  # default
+        best_method = "louvain"
         best_score = -1.0
 
         for method, result in communities_results.items():
             if "error" in result or not result.get("communities"):
                 continue
 
-            # Score based on modularity and number of reasonable communities
             modularity = result.get("modularity", 0.0)
             num_communities = result.get("num_communities", 0)
             avg_size = result.get("avg_community_size", 0.0)
 
-            # Prefer methods with higher modularity and reasonable community sizes
             score = (
-                    modularity * 0.7
-                    + (min(num_communities, 5) / 5.0) * 0.2
-                    + (min(avg_size, 10) / 10.0) * 0.1
+                modularity * 0.7
+                + (min(num_communities, 5) / 5.0) * 0.2
+                + (min(avg_size, 10) / 10.0) * 0.1
             )
 
             if score > best_score:
@@ -563,11 +547,9 @@ class SubgraphAnalyzer:
         node_list = list(nodes)
         n = len(node_list)
 
-        # For small graphs, use brute force TSP
         if n <= 10:
             return self._tsp_hamiltonian_cycle(node_list, subgraph)
 
-        # For larger graphs, use greedy approximation
         return self._greedy_hamiltonian_cycle(node_list, subgraph)
 
     def _tsp_hamiltonian_cycle(self, nodes: List[int], subgraph: nx.Graph) -> Dict:
@@ -576,13 +558,11 @@ class SubgraphAnalyzer:
         max_weight = 0.0
         best_cycle = []
 
-        # Try all permutations (TSP)
         for perm in itertools.permutations(nodes[1:]):
             cycle = [nodes[0]] + list(perm)
             weight = 0.0
             valid = True
 
-            # Calculate cycle weight
             for i in range(n):
                 u, v = cycle[i], cycle[(i + 1) % n]
                 if subgraph.has_edge(u, v):
@@ -616,13 +596,11 @@ class SubgraphAnalyzer:
                 "summary": "No nodes",
             }
 
-        # Start from arbitrary node
         current = nodes[0]
         cycle = [current]
         remaining = set(nodes[1:])
         total_weight = 0.0
 
-        # Greedy: always go to highest weight unvisited neighbor
         while remaining:
             best_next = None
             best_weight = -1
@@ -637,7 +615,7 @@ class SubgraphAnalyzer:
                         best_next = neighbor
 
             if best_next is None:
-                # No connected nodes, take any remaining
+
                 best_next = next(iter(remaining))
                 best_weight = 0.0
 
@@ -646,7 +624,6 @@ class SubgraphAnalyzer:
             total_weight += best_weight
             current = best_next
 
-        # Close the cycle
         if subgraph.has_edge(cycle[-1], cycle[0]):
             total_weight += subgraph.get_edge_data(cycle[-1], cycle[0]).get(
                 "weight", 0.0
@@ -670,24 +647,43 @@ class SubgraphAnalyzer:
         subgraph = graph.subgraph(nodes)
 
         try:
-            # Create distance matrix from edge weights (invert weights to distances)
+
             n = len(node_list)
             distance_matrix = np.full((n, n), np.inf)
 
-            # Set diagonal to 0
             np.fill_diagonal(distance_matrix, 0)
 
-            # Fill in edge weights (convert to distances)
+            all_weights = []
             for i, node_i in enumerate(node_list):
                 for j, node_j in enumerate(node_list):
                     if i != j and subgraph.has_edge(node_i, node_j):
                         edge_weight = subgraph.get_edge_data(node_i, node_j).get(
                             "weight", 0.01
                         )
-                        # Convert weight to distance (higher weight = closer = lower distance)
-                        distance_matrix[i, j] = 1.0 / max(edge_weight, 0.01)
+                        all_weights.append(edge_weight)
 
-            # Use Floyd-Warshall to find shortest paths
+            if all_weights:
+                min_weight = min(all_weights)
+                max_weight = max(all_weights)
+                weight_range = max_weight - min_weight
+
+                for i, node_i in enumerate(node_list):
+                    for j, node_j in enumerate(node_list):
+                        if i != j and subgraph.has_edge(node_i, node_j):
+                            edge_weight = subgraph.get_edge_data(node_i, node_j).get(
+                                "weight", 0.01
+                            )
+
+                            if weight_range > 0:
+                                normalized_weight = (
+                                    edge_weight - min_weight
+                                ) / weight_range
+
+                                distance_matrix[i, j] = 2.0 - (1.9 * normalized_weight)
+                            else:
+
+                                distance_matrix[i, j] = 1.0
+
             for k in range(n):
                 for i in range(n):
                     for j in range(n):
@@ -696,19 +692,16 @@ class SubgraphAnalyzer:
                             distance_matrix[i, k] + distance_matrix[k, j],
                         )
 
-            # Apply MDS
             mds = MDS(n_components=2, dissimilarity="precomputed", random_state=42)
             coordinates = mds.fit_transform(distance_matrix)
 
-            # Normalize coordinates to [0, 1] range
             if coordinates.shape[0] > 1:
                 coords_min = coordinates.min(axis=0)
                 coords_max = coordinates.max(axis=0)
                 coords_range = coords_max - coords_min
-                coords_range[coords_range == 0] = 1  # Avoid division by zero
+                coords_range[coords_range == 0] = 1
                 coordinates = (coordinates - coords_min) / coords_range
 
-            # Create coordinate mapping
             layout_coords = {}
             for i, node in enumerate(node_list):
                 layout_coords[int(node)] = {
@@ -728,7 +721,7 @@ class SubgraphAnalyzer:
 
         except Exception as e:
             logger.info(f"MDS layout failed: {e}")
-            # Fallback to simple circular layout
+
             fallback_coords = {}
             for i, node in enumerate(node_list):
                 angle = 2 * np.pi * i / len(node_list)
@@ -744,12 +737,12 @@ class SubgraphAnalyzer:
             }
 
     def analyze_hybrid_centroids(
-            self,
-            nodes: Set[int],
-            feature_embeddings: Dict[str, np.ndarray],
-            matrix_builder,
-            tuned_w_s: Dict[str, float],
-            tuned_w_c: Dict[str, float],
+        self,
+        nodes: Set[int],
+        feature_embeddings: Dict[str, np.ndarray],
+        matrix_builder,
+        tuned_w_s: Dict[str, float],
+        tuned_w_c: Dict[str, float],
     ) -> Dict:
         """Combine embedding similarity and complementarity analysis"""
         if not nodes or len(nodes) < 2:
@@ -773,21 +766,18 @@ class SubgraphAnalyzer:
             if category not in feature_embeddings:
                 continue
 
-            # Get embeddings for this category
             category_embeddings = feature_embeddings[category][node_list]
 
-            # Calculate embedding similarities (cosine similarity)
             embedding_similarities = []
             complementarity_scores = []
             hybrid_scores = []
 
             for i, node_i in enumerate(node_list):
-                for j, node_j in enumerate(node_list[i + 1:], start=i + 1):
-                    # Embedding similarity
+                for j, node_j in enumerate(node_list[i + 1 :], start=i + 1):
+
                     emb_i = category_embeddings[i]
                     emb_j = category_embeddings[j]
 
-                    # Cosine similarity
                     norm_i = np.linalg.norm(emb_i)
                     norm_j = np.linalg.norm(emb_j)
                     if norm_i > 0 and norm_j > 0:
@@ -795,17 +785,14 @@ class SubgraphAnalyzer:
                     else:
                         sim_score = 0.0
 
-                    # Complementarity score
                     comp_scores = matrix_builder.get_all_complementarities(
                         node_i, node_j
                     )
                     comp_score = comp_scores.get(category, 0.5)
 
-                    # Hybrid score using tuned weights
                     w_s = tuned_w_s.get(category, 1.0)
                     w_c = tuned_w_c.get(category, 1.0)
 
-                    # Weighted combination
                     hybrid_score = (w_s * sim_score + w_c * comp_score) / (w_s + w_c)
 
                     embedding_similarities.append(sim_score)
@@ -820,11 +807,10 @@ class SubgraphAnalyzer:
                     "similarity_weight": tuned_w_s.get(category, 1.0),
                     "complementarity_weight": tuned_w_c.get(category, 1.0),
                     "balance_ratio": float(np.mean(embedding_similarities))
-                                     / max(float(np.mean(complementarity_scores)), 0.01),
+                    / max(float(np.mean(complementarity_scores)), 0.01),
                     "total_pairs": len(hybrid_scores),
                 }
 
-        # Overall hybrid strength
         overall_scores = [
             pattern["avg_hybrid_score"] for pattern in hybrid_patterns.values()
         ]
@@ -832,7 +818,6 @@ class SubgraphAnalyzer:
             float(np.mean(overall_scores)) if overall_scores else 0.0
         )
 
-        # Find most balanced category (closest to equal sim/comp contribution)
         most_balanced_category = None
         best_balance_score = float("inf")
 
@@ -850,12 +835,12 @@ class SubgraphAnalyzer:
         }
 
     def analyze_feature_importance(
-            self,
-            nodes: Set[int],
-            graph: nx.Graph,
-            matrix_builder,
-            tuned_w_s: Dict[str, float],
-            tuned_w_c: Dict[str, float],
+        self,
+        nodes: Set[int],
+        graph: nx.Graph,
+        matrix_builder,
+        tuned_w_s: Dict[str, float],
+        tuned_w_c: Dict[str, float],
     ) -> Dict:
         """Analyze which features contribute most to subgraph density based on tuned parameters"""
         if not nodes or len(nodes) < 2:
@@ -880,37 +865,32 @@ class SubgraphAnalyzer:
             data.get("weight", 0.0) for _, _, data in subgraph.edges(data=True)
         )
 
-        # For each feature, estimate its contribution to total edge weights
         for category in feature_categories:
             similarity_weight = tuned_w_s.get(category, 1.0)
             complementarity_weight = tuned_w_c.get(category, 1.0)
             total_weight = similarity_weight + complementarity_weight
 
-            # Calculate average feature scores for all edges
             category_sim_scores = []
             category_comp_scores = []
             edge_contributions = []
 
             for i, node_i in enumerate(node_list):
-                for j, node_j in enumerate(node_list[i + 1:], start=i + 1):
+                for j, node_j in enumerate(node_list[i + 1 :], start=i + 1):
                     if subgraph.has_edge(node_i, node_j):
-                        # Get similarity and complementarity for this edge
+
                         comp_scores = matrix_builder.get_all_complementarities(
                             node_i, node_j
                         )
                         comp_score = comp_scores.get(category, 0.5)
                         category_comp_scores.append(comp_score)
 
-                        # For similarity, we'd need to recalculate or estimate
-                        # For now, estimate similarity as inverse relationship to complementarity
-                        sim_score = 1.0 - comp_score + 0.1  # Rough estimation
+                        sim_score = 1.0 - comp_score + 0.1
                         category_sim_scores.append(sim_score)
 
-                        # Estimate this feature's contribution to the edge weight
                         feature_contribution = (
-                                                       similarity_weight * sim_score
-                                                       + complementarity_weight * comp_score
-                                               ) / total_weight
+                            similarity_weight * sim_score
+                            + complementarity_weight * comp_score
+                        ) / total_weight
                         edge_data = subgraph.get_edge_data(node_i, node_j)
                         edge_weight = edge_data.get("weight", 0.0)
                         edge_contributions.append(feature_contribution * edge_weight)
@@ -923,28 +903,26 @@ class SubgraphAnalyzer:
                 feature_contributions[category] = {
                     "total_contribution": total_feature_contribution,
                     "contribution_percentage": (
-                                                       total_feature_contribution / max(total_subgraph_weight, 0.001)
-                                               )
-                                               * 100,
+                        total_feature_contribution / max(total_subgraph_weight, 0.001)
+                    )
+                    * 100,
                     "avg_similarity": avg_similarity,
                     "avg_complementarity": avg_complementarity,
                     "similarity_weight": similarity_weight,
                     "complementarity_weight": complementarity_weight,
                     "similarity_dominance": similarity_weight
-                                            / max(total_weight, 0.001),
+                    / max(total_weight, 0.001),
                     "complementarity_dominance": complementarity_weight
-                                                 / max(total_weight, 0.001),
+                    / max(total_weight, 0.001),
                     "edges_analyzed": len(edge_contributions),
                 }
 
-        # Find most important features
         sorted_features = sorted(
             feature_contributions.items(),
             key=lambda x: x[1]["contribution_percentage"],
             reverse=True,
         )
 
-        # Analyze similarity vs complementarity dominance across features
         sim_dominant_features = []
         comp_dominant_features = []
 
@@ -954,7 +932,7 @@ class SubgraphAnalyzer:
                     {
                         "feature": feature,
                         "dominance_ratio": contrib["similarity_dominance"]
-                                           / max(contrib["complementarity_dominance"], 0.001),
+                        / max(contrib["complementarity_dominance"], 0.001),
                         "contribution": contrib["contribution_percentage"],
                     }
                 )
@@ -963,7 +941,7 @@ class SubgraphAnalyzer:
                     {
                         "feature": feature,
                         "dominance_ratio": contrib["complementarity_dominance"]
-                                           / max(contrib["similarity_dominance"], 0.001),
+                        / max(contrib["similarity_dominance"], 0.001),
                         "contribution": contrib["contribution_percentage"],
                     }
                 )
@@ -976,7 +954,7 @@ class SubgraphAnalyzer:
             "complementarity_dominant_features": comp_dominant_features,
             "density_drivers": {
                 "similarity_driven": len(sim_dominant_features)
-                                     > len(comp_dominant_features),
+                > len(comp_dominant_features),
                 "primary_mechanism": (
                     "similarity"
                     if len(sim_dominant_features) > len(comp_dominant_features)
@@ -985,13 +963,13 @@ class SubgraphAnalyzer:
                 "balance_score": abs(
                     len(sim_dominant_features) - len(comp_dominant_features)
                 )
-                                 / max(len(feature_categories), 1),
+                / max(len(feature_categories), 1),
             },
             "summary": f"Top contributor: {sorted_features[0][0] if sorted_features else 'None'} ({sorted_features[0][1]['contribution_percentage']:.1f}% of density), {len(sim_dominant_features)} sim-driven, {len(comp_dominant_features)} comp-driven features",
         }
 
     def analyze_dataset_values(
-            self, nodes: Set[int], df: pd.DataFrame, matrix_builder
+        self, nodes: Set[int], df: pd.DataFrame, matrix_builder
     ) -> Dict:
         """Extract and analyze actual dataset values for subgraph members"""
         if not nodes:
@@ -1000,7 +978,6 @@ class SubgraphAnalyzer:
         node_list = list(nodes)
         member_profiles = []
 
-        # Feature columns mapping
         feature_columns = {
             "role": "Professional Identity - Role Specification",
             "experience": "Professional Identity - Experience Level",
@@ -1010,7 +987,6 @@ class SubgraphAnalyzer:
             "offering": "Company Offering - Value Proposition",
         }
 
-        # Extract profiles for each member
         for node_idx in node_list:
             person_data = df.iloc[node_idx]
             profile = {
@@ -1021,7 +997,6 @@ class SubgraphAnalyzer:
                 "features": {},
             }
 
-            # Extract feature values
             for feature_key, column_name in feature_columns.items():
                 raw_value = person_data.get(column_name, "")
                 profile["features"][feature_key] = {
@@ -1034,7 +1009,6 @@ class SubgraphAnalyzer:
 
             member_profiles.append(profile)
 
-        # Analyze common patterns across members
         common_patterns = self._find_common_patterns(member_profiles)
         diversity_analysis = self._analyze_diversity(member_profiles)
 
@@ -1051,7 +1025,6 @@ class SubgraphAnalyzer:
         if not value or value.strip() == "":
             return []
 
-        # Simple tag extraction - split on common delimiters
         delimiters = ["|", ",", ";", "\n", " and ", " & "]
         tags = [value]
 
@@ -1061,7 +1034,6 @@ class SubgraphAnalyzer:
                 new_tags.extend([t.strip() for t in tag.split(delimiter) if t.strip()])
             tags = new_tags
 
-        # Clean and filter tags
         clean_tags = []
         for tag in tags:
             tag = tag.strip().lower()
@@ -1077,14 +1049,13 @@ class SubgraphAnalyzer:
             ]:
                 clean_tags.append(tag)
 
-        return clean_tags[:10]  # Limit to top 10 tags
+        return clean_tags[:10]
 
     def _find_common_patterns(self, profiles: List[Dict]) -> Dict:
         """Find common patterns across member profiles"""
         if not profiles:
             return {"common_keywords": [], "shared_features": {}}
 
-        # Count keyword frequencies across all profiles
         keyword_counts = defaultdict(int)
         feature_value_counts = {}
 
@@ -1095,16 +1066,13 @@ class SubgraphAnalyzer:
                 if feature_key not in feature_value_counts:
                     feature_value_counts[feature_key] = defaultdict(int)
 
-                # Count feature tags
                 for tag in feature_data["tags"]:
                     profile_keywords.add(tag)
                     feature_value_counts[feature_key][tag] += 1
 
-            # Count unique keywords per profile (avoid double-counting)
             for keyword in profile_keywords:
                 keyword_counts[keyword] += 1
 
-        # Find common keywords (appear in >50% of profiles)
         min_threshold = max(1, len(profiles) * 0.5)
         common_keywords = [
             keyword
@@ -1113,12 +1081,11 @@ class SubgraphAnalyzer:
         ]
         common_keywords.sort(key=lambda x: keyword_counts[x], reverse=True)
 
-        # Find most shared features
         shared_features = {}
         for feature_key, value_counts in feature_value_counts.items():
             top_values = sorted(value_counts.items(), key=lambda x: x[1], reverse=True)[
-                         :5
-                         ]
+                :5
+            ]
             shared_features[feature_key] = [
                 {
                     "value": value,
@@ -1130,7 +1097,7 @@ class SubgraphAnalyzer:
             ]
 
         return {
-            "common_keywords": common_keywords[:20],  # Top 20
+            "common_keywords": common_keywords[:20],
             "shared_features": shared_features,
             "keyword_frequencies": dict(
                 sorted(keyword_counts.items(), key=lambda x: x[1], reverse=True)[:20]
@@ -1152,7 +1119,7 @@ class SubgraphAnalyzer:
             "market",
             "offering",
         ]:
-            # Calculate diversity for each feature
+
             all_tags = []
             profile_tag_sets = []
 
@@ -1166,7 +1133,6 @@ class SubgraphAnalyzer:
                 unique_tags = len(set(all_tags))
                 total_tags = len(all_tags)
 
-                # Calculate Jaccard diversity (average pairwise distance)
                 jaccard_distances = []
                 for i in range(len(profile_tag_sets)):
                     for j in range(i + 1, len(profile_tag_sets)):
@@ -1187,10 +1153,9 @@ class SubgraphAnalyzer:
                     "uniqueness_ratio": unique_tags / max(total_tags, 1),
                     "avg_pairwise_diversity": avg_diversity,
                     "diversity_score": (unique_tags / max(total_tags, 1))
-                                       * avg_diversity,
+                    * avg_diversity,
                 }
 
-        # Overall diversity score
         diversity_scores = [fd["diversity_score"] for fd in feature_diversity.values()]
         overall_diversity = np.mean(diversity_scores) if diversity_scores else 0.0
 

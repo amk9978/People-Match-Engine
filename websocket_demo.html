@@ -679,7 +679,7 @@
             logMessage('✅ Previous job cleared, ready for new analysis', 'success');
         }
         let analysisSteps = [
-            'Initializing GraphMatcher',
+            'Initializing GraphBuilder',
             'Loading data',
             'Preprocessing tags and embeddings',
             'Creating feature embeddings',
@@ -1015,7 +1015,7 @@
         let networkRootG = null;
         let networkSimulation = null;
         let networkZoomBehavior = null;
-        let currentNetworkTransform = d3.zoomIdentity;
+        let currentNetworkTransform = null;
         let mdsCoordinates = null;  // Store MDS layout coordinates
 
         function getLinkedInName(id) {
@@ -1131,6 +1131,9 @@
                 .attr('preserveAspectRatio', 'xMidYMid meet');
             networkSvg.selectAll('*').remove();
             networkRootG = networkSvg.append('g').attr('id', 'networkRoot');
+            if (!currentNetworkTransform) {
+                currentNetworkTransform = d3.zoomIdentity;
+            }
             networkZoomBehavior = d3.zoom().scaleExtent([0.1, 6]).on('zoom', ev => {
                 currentNetworkTransform = ev.transform;
                 networkRootG.attr('transform', currentNetworkTransform);
@@ -1144,9 +1147,12 @@
             if (!networkGraphData) return;
             if (networkSimulation) { networkSimulation.stop(); networkSimulation = null; }
 
-            const threshold = +document.getElementById('threshold').value;
-            document.getElementById('thval').textContent = threshold.toFixed(3);
-            const layout = document.getElementById('layoutType').value;
+            const thresholdElement = document.getElementById('threshold');
+            const threshold = thresholdElement ? +thresholdElement.value : 0;
+            const thvalElement = document.getElementById('thval');
+            if (thvalElement) thvalElement.textContent = threshold.toFixed(3);
+            const layoutElement = document.getElementById('layoutType');
+            const layout = layoutElement ? layoutElement.value : 'force';
 
             const { width, height } = initNetworkSvg();
 
@@ -1340,21 +1346,24 @@
             const formData = new FormData();
             formData.append('file', selectedFile);
 
-            const minDensity = document.getElementById('minDensity').value;
+            const minDensityElement = document.getElementById('minDensity');
+            const minDensity = minDensityElement ? minDensityElement.value : '';
             console.log('DEBUG - minDensity raw value:', minDensity);
             if (minDensity && minDensity !== '' && minDensity !== 'None') {
                 formData.append('min_density', parseFloat(minDensity));
                 console.log('DEBUG - Added min_density:', parseFloat(minDensity));
             }
 
-            const prompt = document.getElementById('promptInput').value.trim();
+            const promptElement = document.getElementById('promptInput');
+            const prompt = promptElement ? promptElement.value.trim() : '';
             console.log('DEBUG - prompt raw value:', prompt);
             if (prompt && prompt !== '' && prompt !== 'None') {
                 formData.append('prompt', prompt);
                 console.log('DEBUG - Added prompt:', prompt);
             }
 
-            const fileId = document.getElementById('fileId').value.trim();
+            const fileIdElement = document.getElementById('fileId');
+            const fileId = fileIdElement ? fileIdElement.value.trim() : '';
             console.log('DEBUG - fileId raw value:', fileId);
             if (fileId && fileId !== '' && fileId !== 'None') {
                 formData.append('file_id', fileId);
@@ -1370,7 +1379,23 @@
             try {
                 logMessage('🚀 Initiating analysis request...', 'info');
 
-                const userId = document.getElementById('newProjectUserId').value.trim();
+                // Make sure upload area is visible before accessing elements
+                const uploadArea = document.getElementById('uploadArea');
+                if (uploadArea) {
+                    uploadArea.style.display = 'block';
+                }
+                
+                const userIdElement = document.getElementById('newProjectUserId');
+                console.log('DEBUG - userIdElement:', userIdElement);
+                let userId = '';
+                if (userIdElement) {
+                    userId = userIdElement.value.trim();
+                } else {
+                    // Fallback: use default user ID
+                    userId = '1';
+                    console.log('DEBUG - Using fallback userId:', userId);
+                }
+                console.log('DEBUG - userId value:', userId);
                 if (!userId) {
                     alert('Please enter your User ID');
                     return;
@@ -1763,6 +1788,11 @@
         document.getElementById('newProjectCard').addEventListener('click', function() {
             document.getElementById('projectOptions').style.display = 'none';
             document.getElementById('uploadArea').style.display = 'block';
+            // Ensure User ID field has default value
+            const userIdField = document.getElementById('newProjectUserId');
+            if (userIdField && !userIdField.value) {
+                userIdField.value = '1';
+            }
         });
 
         document.getElementById('loadProjectCard').addEventListener('click', function() {
@@ -1781,7 +1811,8 @@
         });
 
         document.getElementById('fetchJobsBtn').addEventListener('click', async function() {
-            const userId = document.getElementById('userIdInput').value.trim();
+            const userIdElement = document.getElementById('userIdInput');
+            const userId = userIdElement ? userIdElement.value.trim() : '';
             if (!userId) {
                 alert('Please enter a valid User ID');
                 return;
@@ -1802,7 +1833,8 @@
         });
 
         document.getElementById('loadJobBtn').addEventListener('click', async function() {
-            const jobId = document.getElementById('jobIdInput').value.trim();
+            const jobIdElement = document.getElementById('jobIdInput');
+            const jobId = jobIdElement ? jobIdElement.value.trim() : '';
             if (!jobId) {
                 alert('Please enter a valid Job ID');
                 return;

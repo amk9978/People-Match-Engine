@@ -8,7 +8,7 @@ from typing import Dict, List, Set
 import pandas as pd
 from openai import AsyncOpenAI
 
-from services.redis_cache import RedisEmbeddingCache
+from services.redis.redis_cache import RedisEmbeddingCache
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +46,7 @@ class BusinessAnalyzer:
         return business_tags
 
     async def get_causal_relationships_for_tag(
-            self, target_tag: str, comparison_tags: List[str], category: str
+        self, target_tag: str, comparison_tags: List[str], category: str
     ) -> Dict[str, float]:
         """Get causal relationship scores for one tag against a list of others"""
 
@@ -110,7 +110,7 @@ Your response:"""
             return {tag: 0.5 for tag in comparison_tags}
 
     def _parse_chatgpt_response(
-            self, result_text: str, comparison_tags: List[str]
+        self, result_text: str, comparison_tags: List[str]
     ) -> Dict[str, float]:
         """Parse ChatGPT response with multiple fallback strategies"""
 
@@ -271,7 +271,7 @@ RESPOND WITH ONLY A NUMBER BETWEEN 0.0 AND 1.0:"""
             return 0.5
 
     async def get_profile_complementarity(
-            self, target_profile: str, comparison_profiles: List[str], category: str
+        self, target_profile: str, comparison_profiles: List[str], category: str
     ) -> Dict[str, float]:
         """Get complementarity scores between complete profile vectors"""
         target_hash = hashlib.md5(target_profile.encode()).hexdigest()[:8]

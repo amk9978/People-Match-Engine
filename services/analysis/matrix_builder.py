@@ -6,8 +6,8 @@ from typing import Dict, Set
 import pandas as pd
 
 from services.analysis.business_analyzer import BusinessAnalyzer
-from services.redis_cache import RedisEmbeddingCache
-from services.tag_extractor import tag_extractor
+from services.preprocessing.tag_extractor import tag_extractor
+from services.redis.redis_cache import RedisEmbeddingCache
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +19,7 @@ class MatrixBuilder:
         self.cache = RedisEmbeddingCache()
         self.business_analyzer = BusinessAnalyzer()
 
-        # Cache key prefixes - will be combined with file_id
+        # Cache key prefixes - will be combined with job_id
         self.CAUSAL_GRAPH_PREFIX = "causal_graph_complete"
         self.PERSONA_MATRIX_PREFIX = "persona_complementarity_matrix_complete"
         self.EXPERIENCE_MATRIX_PREFIX = "experience_complementarity_matrix_complete"
@@ -29,21 +29,21 @@ class MatrixBuilder:
         self._matrices = {}
         self._person_tags_cache = {}
 
-    def _get_cache_key(self, category: str, file_id: str) -> str:
-        """Generate file-specific cache key for a matrix category"""
+    def _get_cache_key(self, category: str, job_id: str) -> str:
+        """Generate job-specific cache key for a matrix category"""
         if category == "business":
-            return f"{self.CAUSAL_GRAPH_PREFIX}_{file_id}"
+            return f"{self.CAUSAL_GRAPH_PREFIX}_{job_id}"
         elif category == "persona":
-            return f"{self.PERSONA_MATRIX_PREFIX}_{file_id}"
+            return f"{self.PERSONA_MATRIX_PREFIX}_{job_id}"
         elif category == "experience":
-            return f"{self.EXPERIENCE_MATRIX_PREFIX}_{file_id}"
+            return f"{self.EXPERIENCE_MATRIX_PREFIX}_{job_id}"
         elif category == "role":
-            return f"{self.ROLE_MATRIX_PREFIX}_{file_id}"
+            return f"{self.ROLE_MATRIX_PREFIX}_{job_id}"
         else:
             raise ValueError(f"Unknown category: {category}")
 
     async def build_causal_relationship_graph(
-        self, csv_path: str, file_id: str
+        self, csv_path: str, job_id: str
     ) -> Dict[str, Dict[str, Dict[str, float]]]:
         """Build complete business complementarity graph using complete profile vectors"""
         logger.info(
@@ -96,7 +96,7 @@ class MatrixBuilder:
 
         # Cache the complete graph
         logger.info(f"\n💾 Caching complete causal relationship graph...")
-        cache_key = self._get_cache_key("business", file_id)
+        cache_key = self._get_cache_key("business", job_id)
         self.cache.set(cache_key, json.dumps(causal_graph))
 
         logger.info(f"✅ Business causal relationship graph complete!")
@@ -129,7 +129,7 @@ class MatrixBuilder:
         return business_profiles
 
     async def build_complementarity_matrix(
-        self, csv_path: str, category: str, file_id: str
+        self, csv_path: str, category: str, job_id: str
     ) -> Dict[str, Dict[str, float]]:
         """Build complementarity matrix for complete profile vectors using ChatGPT analysis"""
         logger.info(
@@ -138,7 +138,7 @@ class MatrixBuilder:
 
         # Extract complete profile vectors from dataset
         profile_vectors = self._extract_profile_vectors(csv_path, category)
-        cache_key = self._get_cache_key(category, file_id)
+        cache_key = self._get_cache_key(category, job_id)
 
         profile_list = sorted(list(profile_vectors))
         logger.info(f"Found {len(profile_list)} unique {category} profile vectors")
@@ -224,9 +224,9 @@ class MatrixBuilder:
 
         return experience_tags
 
-    def load_causal_graph_from_redis(self, file_id: str) -> bool:
+    def load_causal_graph_from_redis(self, job_id: str) -> bool:
         """Load business causal graph from Redis cache"""
-        cache_key = self._get_cache_key("business", file_id)
+        cache_key = self._get_cache_key("business", job_id)
         cached_graph = self.cache.get(cache_key)
         if cached_graph:
             try:
@@ -238,9 +238,9 @@ class MatrixBuilder:
                 return False
         return False
 
-    def load_persona_matrix_from_redis(self, file_id: str) -> bool:
+    def load_persona_matrix_from_redis(self, job_id: str) -> bool:
         """Load persona complementarity matrix from Redis cache"""
-        cache_key = self._get_cache_key("persona", file_id)
+        cache_key = self._get_cache_key("persona", job_id)
         cached_matrix = self.cache.get(cache_key)
         if cached_matrix:
             try:
@@ -254,9 +254,9 @@ class MatrixBuilder:
                 return False
         return False
 
-    def load_experience_matrix_from_redis(self, file_id: str) -> bool:
+    def load_experience_matrix_from_redis(self, job_id: str) -> bool:
         """Load experience complementarity matrix from Redis cache"""
-        cache_key = self._get_cache_key("experience", file_id)
+        cache_key = self._get_cache_key("experience", job_id)
         cached_matrix = self.cache.get(cache_key)
         if cached_matrix:
             try:
@@ -270,9 +270,9 @@ class MatrixBuilder:
                 return False
         return False
 
-    def load_role_matrix_from_redis(self, file_id: str) -> bool:
+    def load_role_matrix_from_redis(self, job_id: str) -> bool:
         """Load role complementarity matrix from Redis cache"""
-        cache_key = self._get_cache_key("role", file_id)
+        cache_key = self._get_cache_key("role", job_id)
         cached_matrix = self.cache.get(cache_key)
         if cached_matrix:
             try:
@@ -288,62 +288,62 @@ class MatrixBuilder:
 
     # Complementarity calculation methods for GraphBuilder
     async def precompute_complementarity_matrices(
-        self, csv_path: str, file_id: str
+        self, csv_path: str, job_id: str
     ) -> None:
         """Load/build all complementarity matrices and load into memory"""
 
         # Load/build business complementarity matrix
-        if not self.load_causal_graph_from_redis(file_id):
+        if not self.load_causal_graph_from_redis(job_id):
             logger.info(
                 "🔧 Business complementarity matrix not found. Building automatically..."
             )
             try:
-                await self.build_causal_relationship_graph(csv_path, file_id)
+                await self.build_causal_relationship_graph(csv_path, job_id)
                 logger.info("✅ Business complementarity matrix built and cached")
             except Exception as e:
                 logger.info(f"⚠️ Error building business matrix: {e}")
 
         # Load/build experience complementarity matrix
-        if not self.load_experience_matrix_from_redis(file_id):
+        if not self.load_experience_matrix_from_redis(job_id):
             logger.info(
                 "🔧 Experience complementarity matrix not found. Building automatically..."
             )
             try:
-                await self.build_complementarity_matrix(csv_path, "experience", file_id)
+                await self.build_complementarity_matrix(csv_path, "experience", job_id)
                 logger.info("✅ Experience complementarity matrix built and cached")
             except Exception as e:
                 logger.info(f"⚠️ Error building experience matrix: {e}")
 
         # Load/build role complementarity matrix
-        if not self.load_role_matrix_from_redis(file_id):
+        if not self.load_role_matrix_from_redis(job_id):
             logger.info(
                 "🔧 Role complementarity matrix not found. Building automatically..."
             )
             try:
-                await self.build_complementarity_matrix(csv_path, "role", file_id)
+                await self.build_complementarity_matrix(csv_path, "role", job_id)
                 logger.info("✅ Role complementarity matrix built and cached")
             except Exception as e:
                 logger.info(f"⚠️ Error building role matrix: {e}")
 
         # Load/build persona complementarity matrix
-        if not self.load_persona_matrix_from_redis(file_id):
+        if not self.load_persona_matrix_from_redis(job_id):
             logger.info(
                 "🔧 Persona complementarity matrix not found. Building automatically..."
             )
             try:
-                await self.build_complementarity_matrix(csv_path, "persona", file_id)
+                await self.build_complementarity_matrix(csv_path, "persona", job_id)
                 logger.info("✅ Persona complementarity matrix built and cached")
             except Exception as e:
                 logger.info(f"⚠️ Error building persona matrix: {e}")
 
         # Load matrices into memory for fast access
-        self._load_matrices_from_cache(file_id)
+        self._load_matrices_from_cache(job_id)
 
-    def _load_matrices_from_cache(self, file_id: str) -> None:
+    def _load_matrices_from_cache(self, job_id: str) -> None:
         """Load all complementarity matrices from Redis cache into memory"""
 
         # Load business categories from causal graph
-        business_cache_key = self._get_cache_key("business", file_id)
+        business_cache_key = self._get_cache_key("business", job_id)
         cached_business = self.cache.get(business_cache_key)
         if cached_business:
             try:
@@ -365,7 +365,7 @@ class MatrixBuilder:
         individual_matrices = ["experience", "role", "persona"]
 
         for matrix_type in individual_matrices:
-            cache_key = self._get_cache_key(matrix_type, file_id)
+            cache_key = self._get_cache_key(matrix_type, job_id)
             cached_data = self.cache.get(cache_key)
             if cached_data:
                 try:
