@@ -370,9 +370,7 @@ class GraphBuilder:
 
         return largest_subgraph, largest_density
 
-    async def run_complete_analysis(
-        self, job_id: str, user_prompt: str = None
-    ) -> Dict:
+    async def run_complete_analysis(self, job_id: str, user_prompt: str = None) -> Dict:
         """Run complete analysis pipeline"""
         logger.info(
             "Starting multi-feature graph matching analysis with tag deduplication..."
