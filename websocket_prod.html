@@ -666,16 +666,18 @@
         let websocket = null;
         let selectedFile = null;
         let currentJobId = null;
-        
-        
+        let selectedRerunFile = null;
+        let lastJobConfig = null;
+
+
         function clearPreviousJob() {
             currentJobId = null;
-            
+
             // Reset UI
             document.getElementById('resultsContainer').style.display = 'none';
             updateProgress(0);
             updateConnectionStatus(true);
-            
+
             logMessage('✅ Previous job cleared, ready for new analysis', 'success');
         }
         let analysisSteps = [
@@ -698,7 +700,7 @@
             websocket.onopen = function() {
                 updateConnectionStatus(true);
                 logMessage('🔗 WebSocket connected successfully!', 'success');
-                
+
             };
 
             websocket.onmessage = function(event) {
@@ -756,6 +758,11 @@
                 const status = data.status;
                 const progress = data.progress || '';
 
+                // Store the full job_id for rerun functionality
+                if (data.job_id) {
+                    currentJobId = data.job_id;
+                }
+
                 if (status === 'processing') {
                     // Update progress based on message content
                     currentStep = Math.min(analysisSteps.findIndex(step =>
@@ -786,9 +793,12 @@
                         fetchJobResult(data.job_id);
                     }
 
+                    // Re-enable buttons
                     setTimeout(() => {
                         updateProgress(0);
                         updateConnectionStatus(true);
+                        document.getElementById('analyzeBtn').disabled = !selectedFile;
+                        document.getElementById('rerunAnalysisBtn').disabled = !selectedRerunFile;
                     }, 3000);
 
                 } else if (status === 'failed') {
@@ -853,6 +863,13 @@
         function showResults(result) {
             const container = document.getElementById('resultsContainer');
             container.style.display = 'block';
+
+            // Store the current job configuration for rerun
+            lastJobConfig = {
+                minDensity: document.getElementById('minDensity') ? document.getElementById('minDensity').value : '0.3',
+                prompt: document.getElementById('promptInput') ? document.getElementById('promptInput').value : '',
+                fileId: document.getElementById('fileId') ? document.getElementById('fileId').value : ''
+            };
 
             let html = `
                 <div class="result-card">
@@ -971,6 +988,52 @@
                         <h4 style="margin-bottom: 20px; color: #2c3e50;">👤 Member Dataset Profiles</h4>
                         <div id="profilesContent">Loading member profiles...</div>
                     </div>
+
+                    <!-- Rerun Section for Completed Jobs -->
+                    <div style="margin-top: 30px; padding: 20px; background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 15px; border: 2px solid #dee2e6;">
+                        <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 20px;">
+                            <div style="width: 50px; height: 50px; background: #3498db; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 20px; color: white;">🔄</div>
+                            <div>
+                                <div style="font-size: 1.4em; font-weight: 600; color: #2c3e50; margin-bottom: 5px;">Rerun Analysis</div>
+                                <div style="color: #7f8c8d;">Upload a new file and rerun the analysis with the same configuration</div>
+                            </div>
+                        </div>
+
+                        <!-- Rerun Upload Area -->
+                        <div class="upload-area" id="rerunUploadArea" style="margin-bottom: 15px;">
+                            <div style="font-size: 32px; margin-bottom: 10px;">📁</div>
+                            <h4>Upload New CSV File</h4>
+                            <p style="margin: 8px 0; color: #7f8c8d;">Drop your new CSV file here or click to select</p>
+                            <input type="file" id="rerunFileInput" accept=".csv">
+                            <button class="btn btn-secondary" onclick="document.getElementById('rerunFileInput').click()">
+                                Choose New File
+                            </button>
+                        </div>
+
+                        <!-- Rerun Configuration -->
+                        <div id="rerunConfig" style="display: none; margin-bottom: 15px; padding: 15px; background: white; border-radius: 8px;">
+                            <div class="form-group">
+                                <label for="rerunUserId">User ID</label>
+                                <input type="text" id="rerunUserId" class="form-control" value="1">
+                            </div>
+                            <div class="form-group">
+                                <label for="rerunMinDensity">Minimum Density Threshold</label>
+                                <input type="number" id="rerunMinDensity" class="form-control" step="0.1" min="0" max="1">
+                            </div>
+                            <div class="form-group">
+                                <label for="rerunPrompt">User Intent (Optional)</label>
+                                <textarea id="rerunPrompt" class="form-control" rows="2" placeholder="e.g., 'I want to hire for my startup'"></textarea>
+                            </div>
+                            <div class="form-group">
+                                <label for="rerunFileId">File ID (Optional)</label>
+                                <input type="text" id="rerunFileId" class="form-control" placeholder="Custom file ID for cache isolation">
+                            </div>
+                        </div>
+
+                        <button id="rerunAnalysisBtn" class="btn" onclick="startRerunAnalysis()" disabled style="width: 100%;">
+                            🚀 Rerun Analysis with New File
+                        </button>
+                    </div>
             `;
 
             if (result.expansion_recommendations && result.expansion_recommendations.length > 0) {
@@ -1001,12 +1064,13 @@
             setTimeout(() => {
                 console.log('Complete result object:', result);
                 console.log('Result keys:', Object.keys(result));
-                
+
                 createNetworkGraph(result);
                 loadCommunityAnalysis(result);
                 loadCycleAnalysis(result);
                 loadFeatureAnalysis(result);
                 loadProfileAnalysis(result);
+                initializeRerunSection();
             }, 100);
         }
 
@@ -1111,11 +1175,11 @@
         }
 
         // Dynamic color functions based on actual data range
-        function linkColor(s, minScore, maxScore) { 
+        function linkColor(s, minScore, maxScore) {
             const range = maxScore - minScore;
             const high = minScore + range * 0.75;
             const mid = minScore + range * 0.4;
-            return s > high ? '#ff6b6b' : (s > mid ? '#4ecdc4' : '#95a5a6'); 
+            return s > high ? '#ff6b6b' : (s > mid ? '#4ecdc4' : '#95a5a6');
         }
         function nodeColor(d) { return d > 15 ? '#e74c3c' : (d > 8 ? '#f39c12' : (d > 3 ? '#3498db' : '#95a5a6')); }
 
@@ -1161,7 +1225,7 @@
             const connected = new Set();
             links.forEach(l => { connected.add(l.source); connected.add(l.target); });
             const nodes = networkGraphData.nodes.filter(n => connected.has(n.id));
-            
+
             // Calculate actual score range for dynamic coloring
             const scores = links.map(l => l.score);
             const minScore = Math.min(...scores);
@@ -1274,13 +1338,13 @@
             if (!result.members || result.members.length === 0) return;
 
             networkGraphData = processNetworkDataForGraph(result);
-            
+
             // Extract MDS coordinates if available and map them properly
             if (result.stress_layout && result.stress_layout.coordinates) {
                 mdsCoordinates = {};
                 const coords = result.stress_layout.coordinates;
                 const members = result.members || [];
-                
+
                 // Map numeric node IDs to member names
                 Object.keys(coords).forEach(nodeId => {
                     const numericId = parseInt(nodeId);
@@ -1291,7 +1355,7 @@
                     // Also keep the original numeric key as fallback
                     mdsCoordinates[nodeId] = coords[nodeId];
                 });
-                
+
                 console.log('MDS coordinates mapped:', mdsCoordinates);
             }
 
@@ -1384,7 +1448,7 @@
                 if (uploadArea) {
                     uploadArea.style.display = 'block';
                 }
-                
+
                 const userIdElement = document.getElementById('newProjectUserId');
                 console.log('DEBUG - userIdElement:', userIdElement);
                 let userId = '';
@@ -1481,7 +1545,7 @@
                 container.innerHTML = '<div style="text-align: center; color: #7f8c8d; padding: 20px;">No community analysis available</div>';
                 return;
             }
-            
+
             const communities = result.weighted_communities;
             let html = `
                 <div class="metrics-grid" style="margin-bottom: 20px;">
@@ -1498,17 +1562,17 @@
                     <strong>Summary:</strong> ${communities.summary || 'No summary available'}
                 </div>
             `;
-            
+
             if (communities.communities && communities.communities.length > 0) {
                 const members = result.members || [];
-                
-                // Helper function to get member name from node ID  
+
+                // Helper function to get member name from node ID
                 function getMemberName(nodeId) {
                     // Try direct array index lookup first
                     if (typeof nodeId === 'number' && members[nodeId] && members[nodeId].name) {
                         return members[nodeId].name;
                     }
-                    
+
                     // Try finding by matching the node in the result.nodes array
                     if (result.nodes && Array.isArray(result.nodes)) {
                         const nodeIndex = result.nodes.indexOf(nodeId);
@@ -1516,31 +1580,31 @@
                             return members[nodeIndex].name;
                         }
                     }
-                    
+
                     // Try finding by exact match of any property
-                    const member = members.find(m => 
-                        m.name === nodeId || 
-                        m.id === nodeId || 
+                    const member = members.find(m =>
+                        m.name === nodeId ||
+                        m.id === nodeId ||
                         m.node_id === nodeId
                     );
-                    
+
                     if (member && member.name) {
                         return member.name;
                     }
-                    
+
                     // If it's already a name string, return as is
                     if (typeof nodeId === 'string' && nodeId.length > 3 && !nodeId.startsWith('Node')) {
                         return nodeId;
                     }
-                    
+
                     return `Node ${nodeId}`;
                 }
-                
+
                 html += '<div class="members-grid">';
                 communities.communities.forEach((community, index) => {
                     const colors = ['#e74c3c', '#f39c12', '#2ecc71', '#3498db', '#9b59b6'];
                     const memberNames = (community.nodes || []).map(nodeId => getMemberName(nodeId));
-                    
+
                     html += `
                         <div class="member-card" style="border-left-color: ${colors[index % colors.length]}">
                             <div class="member-name">Community ${community.id + 1}</div>
@@ -1559,29 +1623,29 @@
                 });
                 html += '</div>';
             }
-            
+
             container.innerHTML = html;
         }
-        
+
         function loadCycleAnalysis(result) {
             const container = document.getElementById('cyclesContent');
             if (!result.maximum_weight_cycle) {
                 container.innerHTML = '<div style="text-align: center; color: #7f8c8d; padding: 20px;">No cycle analysis available</div>';
                 return;
             }
-            
+
             const cycles = result.maximum_weight_cycle;
             const members = result.members || [];
-            
+
             // Helper function to get member name from node ID
             function getMemberName(nodeId) {
                 console.log('Looking for nodeId:', nodeId, 'in members:', members);
-                
+
                 // Try direct array index lookup first
                 if (typeof nodeId === 'number' && members[nodeId] && members[nodeId].name) {
                     return members[nodeId].name;
                 }
-                
+
                 // Try finding by matching the node in the result.nodes array
                 if (result.nodes && Array.isArray(result.nodes)) {
                     const nodeIndex = result.nodes.indexOf(nodeId);
@@ -1589,26 +1653,26 @@
                         return members[nodeIndex].name;
                     }
                 }
-                
+
                 // Try finding by exact match of any property
-                const member = members.find(m => 
-                    m.name === nodeId || 
-                    m.id === nodeId || 
+                const member = members.find(m =>
+                    m.name === nodeId ||
+                    m.id === nodeId ||
                     m.node_id === nodeId
                 );
-                
+
                 if (member && member.name) {
                     return member.name;
                 }
-                
+
                 // If it's already a name string, return as is
                 if (typeof nodeId === 'string' && nodeId.length > 3 && !nodeId.startsWith('Node')) {
                     return nodeId;
                 }
-                
+
                 return `Node ${nodeId}`;
             }
-            
+
             let html = `
                 <div class="metrics-grid" style="margin-bottom: 20px;">
                     <div class="metric-card">
@@ -1624,12 +1688,12 @@
                     <strong>Summary:</strong> ${cycles.summary || 'No summary available'}
                 </div>
             `;
-            
+
             // Show the maximum weight cycle with actual member names
             if (cycles.maximum_cycle && cycles.maximum_cycle.nodes && cycles.maximum_cycle.nodes.length > 0) {
                 const cycleNodes = cycles.maximum_cycle.nodes;
                 const memberNames = cycleNodes.map(nodeId => getMemberName(nodeId));
-                
+
                 html += `
                     <h5 style="margin: 20px 0 10px 0; color: #2c3e50;">🔄 Maximum Weight Cycle Path</h5>
                     <div style="background: white; padding: 20px; border-radius: 8px; border-left: 4px solid #e74c3c;">
@@ -1638,7 +1702,7 @@
                             ${memberNames.join(' → ')}
                         </div>
                         <div style="font-size: 14px; color: #7f8c8d; margin-top: 10px;">
-                            <strong>Total Weight:</strong> ${cycles.maximum_cycle.weight.toFixed(3)} • 
+                            <strong>Total Weight:</strong> ${cycles.maximum_cycle.weight.toFixed(3)} •
                             <strong>Path Length:</strong> ${memberNames.length} members
                         </div>
                     </div>
@@ -1646,15 +1710,16 @@
             } else {
                 html += '<div style="text-align: center; color: #7f8c8d; padding: 20px;">No cycle found covering all nodes</div>';
             }
-            
+
             container.innerHTML = html;
         }
-        
+
         function loadFeatureAnalysis(result) {
             const container = document.getElementById('featuresContent');
             console.log('Feature analysis data:', result.feature_importance);
+            console.log('Replication recommendations:', result.replication_recommendations);
             console.log('All result keys:', Object.keys(result));
-            
+
             if (!result.feature_importance) {
                 container.innerHTML = `
                     <div style="text-align: center; color: #7f8c8d; padding: 20px;">
@@ -1664,21 +1729,21 @@
                 `;
                 return;
             }
-            
+
             const features = result.feature_importance;
             let html = `
                 <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
                     <strong>Summary:</strong> ${features.summary || 'No summary available'}
                 </div>
             `;
-            
+
             if (features.feature_contributions) {
                 html += '<h5 style="margin: 20px 0 10px 0; color: #2c3e50;">Feature Contributions to Density</h5>';
-                
+
                 // Create sorted list of features by contribution
                 const sortedFeatures = Object.entries(features.feature_contributions)
                     .sort((a, b) => b[1].contribution_percentage - a[1].contribution_percentage);
-                
+
                 html += '<div class="members-grid">';
                 sortedFeatures.forEach(([featureName, data], index) => {
                     const colors = ['#e74c3c', '#f39c12', '#2ecc71', '#3498db', '#9b59b6', '#34495e'];
@@ -1698,14 +1763,76 @@
                 });
                 html += '</div>';
             }
-            
+
+            // Add Replication Recommendations Section
+            if (result.replication_recommendations && result.replication_recommendations.optimal_feature_profile) {
+                html += `
+                    <h5 style="margin: 30px 0 15px 0; color: #2c3e50;">
+                        🎯 Node Replication Recommendations
+                    </h5>
+                    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 12px; margin-bottom: 20px;">
+                        <h6 style="margin: 0 0 10px 0; color: white;">Optimal Feature Profile (Greedy Matrix Selection)</h6>
+                        <p style="margin: 0; font-size: 14px; opacity: 0.9;">
+                            This "super-node" profile combines the strongest feature values from each matrix to maximize edge weights.
+                        </p>
+                    </div>
+                `;
+
+                const optimalProfile = result.replication_recommendations.optimal_feature_profile;
+                const matrixChampions = result.replication_recommendations.matrix_champions || [];
+                const matrixSelections = result.replication_recommendations.matrix_selections || {};
+
+                html += '<div class="members-grid">';
+                Object.entries(optimalProfile).forEach(([featureName, featureValue], index) => {
+                    const champion = matrixChampions.find(c => c.feature === featureName);
+                    const selection = matrixSelections[featureName];
+                    const colors = ['#e74c3c', '#f39c12', '#2ecc71', '#3498db', '#9b59b6', '#34495e'];
+
+                    html += `
+                        <div class="member-card" style="border-left-color: ${colors[index % colors.length]}; position: relative;">
+                            <div class="member-name">${featureName.charAt(0).toUpperCase() + featureName.slice(1)}</div>
+                            <div style="font-size: 12px; color: #7f8c8d; margin: 8px 0; min-height: 40px;">
+                                <strong>Value:</strong> ${featureValue.length > 50 ? featureValue.substring(0, 50) + '...' : featureValue}
+                            </div>
+                            ${champion ? `
+                                <div style="font-size: 11px; color: #95a5a6; margin: 5px 0;">
+                                    <strong>Source:</strong> ${champion.name}<br/>
+                                    <strong>Company:</strong> ${champion.company}
+                                </div>
+                            ` : ''}
+                            ${selection ? `
+                                <div style="position: absolute; top: 8px; right: 8px; font-size: 10px; padding: 2px 6px; border-radius: 10px; ${selection.selected_matrix === 'similarity' ? 'background: #3498db; color: white;' : 'background: #e74c3c; color: white;'}">
+                                    ${selection.selected_matrix === 'similarity' ? '📈 SIM' : '🔄 COMP'}
+                                </div>
+                            ` : ''}
+                            ${champion ? `
+                                <div style="font-size: 11px; color: #27ae60; font-weight: bold; margin-top: 8px;">
+                                    Score: ${champion.avg_weighted_score.toFixed(3)}
+                                </div>
+                            ` : ''}
+                        </div>
+                    `;
+                });
+                html += '</div>';
+
+                // Add strategy explanation
+                if (result.replication_recommendations.strategy_explanation) {
+                    html += `
+                        <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-top: 20px; border-left: 4px solid #3498db;">
+                            <h6 style="margin: 0 0 10px 0; color: #2c3e50;">Strategy Explanation</h6>
+                            <pre style="white-space: pre-wrap; font-size: 12px; color: #7f8c8d; margin: 0; font-family: 'Segoe UI', sans-serif;">${result.replication_recommendations.strategy_explanation}</pre>
+                        </div>
+                    `;
+                }
+            }
+
             container.innerHTML = html;
         }
-        
+
         function loadProfileAnalysis(result) {
             const container = document.getElementById('profilesContent');
             console.log('Profile analysis data:', result.dataset_values);
-            
+
             if (!result.dataset_values) {
                 container.innerHTML = `
                     <div style="text-align: center; color: #7f8c8d; padding: 20px;">
@@ -1715,7 +1842,7 @@
                 `;
                 return;
             }
-            
+
             const profiles = result.dataset_values;
             let html = `
                 <div class="metrics-grid" style="margin-bottom: 20px;">
@@ -1736,7 +1863,7 @@
                     <strong>Summary:</strong> ${profiles.summary || 'No summary available'}
                 </div>
             `;
-            
+
             // Show common keywords
             if (profiles.common_patterns && profiles.common_patterns.common_keywords.length > 0) {
                 html += '<h5 style="margin: 20px 0 10px 0; color: #2c3e50;">Common Keywords</h5>';
@@ -1746,7 +1873,7 @@
                 });
                 html += '</div>';
             }
-            
+
             // Show member profiles
             if (profiles.member_profiles && profiles.member_profiles.length > 0) {
                 html += '<h5 style="margin: 20px 0 10px 0; color: #2c3e50;">Member Profiles</h5>';
@@ -1759,7 +1886,7 @@
                                 <strong>Company:</strong> ${profile.company || 'N/A'}
                             </div>
                     `;
-                    
+
                     // Show key features
                     if (profile.features) {
                         const keyFeatures = ['role', 'industry', 'experience'];
@@ -1775,12 +1902,12 @@
                             }
                         });
                     }
-                    
+
                     html += '</div>';
                 });
                 html += '</div>';
             }
-            
+
             container.innerHTML = html;
         }
 
@@ -1849,6 +1976,8 @@
                 if (response.ok) {
                     const jobResult = await response.json();
                     if (jobResult && jobResult.result) {
+                        // Set currentJobId for rerun functionality
+                        currentJobId = jobId;
                         showResults(jobResult.result);
                         logMessage(`✅ Loaded previous job: ${jobId}`, 'success');
                     } else {
@@ -1866,7 +1995,7 @@
         function displayJobsList(jobs) {
             const jobsList = document.getElementById('jobsList');
             const jobsContainer = document.getElementById('jobsContainer');
-            
+
             if (!jobs || jobs.length === 0) {
                 jobsContainer.innerHTML = '<p>No jobs found for this user.</p>';
                 jobsList.style.display = 'block';
@@ -1898,6 +2027,137 @@
 
         async function selectJob(jobId) {
             await loadJobById(jobId);
+        }
+
+        // Rerun functionality
+        function initializeRerunSection() {
+            // Populate rerun form with last job configuration
+            if (lastJobConfig) {
+                const rerunMinDensity = document.getElementById('rerunMinDensity');
+                const rerunPrompt = document.getElementById('rerunPrompt');
+                const rerunFileId = document.getElementById('rerunFileId');
+
+                if (rerunMinDensity) rerunMinDensity.value = lastJobConfig.minDensity || '0.3';
+                if (rerunPrompt) rerunPrompt.value = lastJobConfig.prompt || '';
+                if (rerunFileId) rerunFileId.value = lastJobConfig.fileId || '';
+            }
+
+            // Set up rerun file upload handlers
+            const rerunFileInput = document.getElementById('rerunFileInput');
+            const rerunUploadArea = document.getElementById('rerunUploadArea');
+
+            rerunFileInput.addEventListener('change', function(e) {
+                selectedRerunFile = e.target.files[0];
+                if (selectedRerunFile) {
+                    rerunUploadArea.classList.add('has-file');
+                    rerunUploadArea.innerHTML = `
+                        <div style="font-size: 32px; margin-bottom: 10px; color: #27ae60;">✅</div>
+                        <h4>${selectedRerunFile.name}</h4>
+                        <p style="margin: 8px 0; color: #27ae60;">Ready to rerun • ${(selectedRerunFile.size / 1024).toFixed(1)} KB</p>
+                        <button class="btn btn-secondary" onclick="document.getElementById('rerunFileInput').click()">
+                            Change File
+                        </button>
+                    `;
+
+                    // Show configuration section and enable rerun button
+                    document.getElementById('rerunConfig').style.display = 'block';
+                    document.getElementById('rerunAnalysisBtn').disabled = !websocket || websocket.readyState !== WebSocket.OPEN;
+                }
+            });
+
+            // Drag and drop for rerun
+            rerunUploadArea.addEventListener('dragover', function(e) {
+                e.preventDefault();
+                rerunUploadArea.classList.add('dragover');
+            });
+
+            rerunUploadArea.addEventListener('dragleave', function(e) {
+                if (!rerunUploadArea.contains(e.relatedTarget)) {
+                    rerunUploadArea.classList.remove('dragover');
+                }
+            });
+
+            rerunUploadArea.addEventListener('drop', function(e) {
+                e.preventDefault();
+                rerunUploadArea.classList.remove('dragover');
+
+                const files = e.dataTransfer.files;
+                if (files.length > 0 && files[0].name.toLowerCase().endsWith('.csv')) {
+                    rerunFileInput.files = files;
+                    rerunFileInput.dispatchEvent(new Event('change'));
+                } else {
+                    alert('Please drop a valid CSV file');
+                }
+            });
+        }
+
+        async function startRerunAnalysis() {
+            if (!selectedRerunFile || !websocket || websocket.readyState !== WebSocket.OPEN) {
+                alert('Please select a file and ensure WebSocket is connected');
+                return;
+            }
+
+            if (!currentJobId) {
+                alert('No previous job found to rerun');
+                return;
+            }
+
+            // Reset progress and hide previous results
+            currentStep = 0;
+            updateProgress(0);
+            document.getElementById('resultsContainer').style.display = 'none';
+
+            const formData = new FormData();
+            formData.append('file', selectedRerunFile);
+
+            // Pass the existing job_id for rerun
+            formData.append('job_id', currentJobId);
+
+            // Get rerun configuration
+            const rerunUserId = document.getElementById('rerunUserId').value.trim() || '1';
+            const rerunMinDensity = document.getElementById('rerunMinDensity').value;
+            const rerunPrompt = document.getElementById('rerunPrompt').value.trim();
+            const rerunFileId = document.getElementById('rerunFileId').value.trim();
+
+            if (rerunMinDensity && rerunMinDensity !== '') {
+                formData.append('min_density', parseFloat(rerunMinDensity));
+            }
+            if (rerunPrompt && rerunPrompt !== '') {
+                formData.append('prompt', rerunPrompt);
+            }
+            if (rerunFileId && rerunFileId !== '') {
+                formData.append('file_id', rerunFileId);
+            }
+
+            try {
+                logMessage('🔄 Starting rerun analysis...', 'info');
+
+                const response = await fetch('http://54.242.164.134:8000/analyze', {
+                    method: 'POST',
+                    headers: {
+                        'X-User-ID': rerunUserId
+                    },
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const result = await response.json();
+                // Keep the same currentJobId for rerun
+                logMessage(`✅ Rerun analysis queued! Job ID: ${currentJobId.substring(0, 8)}...`, 'success');
+
+                // Disable rerun button during analysis
+                document.getElementById('rerunAnalysisBtn').disabled = true;
+
+                // Scroll to top to see progress
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+
+            } catch (error) {
+                logMessage(`❌ Failed to start rerun analysis: ${error.message}`, 'error');
+                updateProgress(0);
+            }
         }
 
         // Initialize WebSocket connection
