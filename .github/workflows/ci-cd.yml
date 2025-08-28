@@ -55,6 +55,7 @@ jobs:
           # SSH into server and deploy
           ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ubuntu@54.242.164.134 << 'EOF'
             cd ~/match_engine
+            cp ~/envs/.env .
             docker build -t match_engine:latest .
             docker-compose down || true
             docker-compose up -d
