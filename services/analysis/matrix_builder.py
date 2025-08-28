@@ -1,7 +1,6 @@
-#!/usr/bin/env python3
-
 import asyncio
 import json
+import logging
 from typing import Dict, Set
 
 import pandas as pd
@@ -9,6 +8,8 @@ import pandas as pd
 from services.analysis.business_analyzer import BusinessAnalyzer
 from services.redis_cache import RedisEmbeddingCache
 from services.tag_extractor import tag_extractor
+
+logger = logging.getLogger(__name__)
 
 
 class MatrixBuilder:
@@ -41,10 +42,13 @@ class MatrixBuilder:
         else:
             raise ValueError(f"Unknown category: {category}")
 
-    async def build_causal_relationship_graph(self, csv_path: str, file_id: str) -> Dict[
-        str, Dict[str, Dict[str, float]]]:
+    async def build_causal_relationship_graph(
+        self, csv_path: str, file_id: str
+    ) -> Dict[str, Dict[str, Dict[str, float]]]:
         """Build complete business complementarity graph using complete profile vectors"""
-        print("🔨 Building business causal relationship graph with complete profile vectors...")
+        logger.info(
+            "🔨 Building business causal relationship graph with complete profile vectors..."
+        )
 
         # Extract complete business profile vectors for each category
         business_profiles = self._extract_business_profile_vectors(csv_path)
@@ -53,7 +57,9 @@ class MatrixBuilder:
 
         # Process each business category
         for category, profiles in business_profiles.items():
-            print(f"\n🏢 Processing {category} category ({len(profiles)} profile vectors)...")
+            logger.info(
+                f"\n🏢 Processing {category} category ({len(profiles)} profile vectors)..."
+            )
             causal_graph[category] = {}
 
             profiles_list = sorted(list(profiles))
@@ -65,9 +71,11 @@ class MatrixBuilder:
             for target_profile in profiles_list:
                 other_profiles = [p for p in profiles_list if p != target_profile]
                 if other_profiles:
-                    tasks.append(self.business_analyzer.get_profile_complementarity(
-                        target_profile, other_profiles, category
-                    ))
+                    tasks.append(
+                        self.business_analyzer.get_profile_complementarity(
+                            target_profile, other_profiles, category
+                        )
+                    )
                     profile_pairs.append((target_profile, other_profiles))
 
             # Execute all tasks concurrently
@@ -76,18 +84,22 @@ class MatrixBuilder:
             # Process results
             for (target_profile, other_profiles), result in zip(profile_pairs, results):
                 if isinstance(result, Exception):
-                    print(f"  ✗ Error processing {target_profile}: {result}")
-                    causal_graph[category][target_profile] = {profile: 0.5 for profile in other_profiles}
+                    logger.info(f"  ✗ Error processing {target_profile}: {result}")
+                    causal_graph[category][target_profile] = {
+                        profile: 0.5 for profile in other_profiles
+                    }
                 else:
                     causal_graph[category][target_profile] = result
-                    print(f"  ✓ {target_profile}: got {str(result)} relationships")
+                    logger.info(
+                        f"  ✓ {target_profile}: got {str(result)} relationships"
+                    )
 
         # Cache the complete graph
-        print(f"\n💾 Caching complete causal relationship graph...")
+        logger.info(f"\n💾 Caching complete causal relationship graph...")
         cache_key = self._get_cache_key("business", file_id)
         self.cache.set(cache_key, json.dumps(causal_graph))
 
-        print(f"✅ Business causal relationship graph complete!")
+        logger.info(f"✅ Business causal relationship graph complete!")
         return causal_graph
 
     def _extract_business_profile_vectors(self, csv_path: str) -> Dict[str, Set[str]]:
@@ -110,23 +122,26 @@ class MatrixBuilder:
                     if profile_vector:
                         business_profiles[category].add(profile_vector)
 
-        print(f"Extracted business profile vectors:")
+        logger.info(f"Extracted business profile vectors:")
         for category, profiles in business_profiles.items():
-            print(f"  {category}: {len(profiles)} unique profile vectors")
+            logger.info(f"  {category}: {len(profiles)} unique profile vectors")
 
         return business_profiles
 
-    async def build_complementarity_matrix(self, csv_path: str, category: str, file_id: str) -> Dict[
-        str, Dict[str, float]]:
+    async def build_complementarity_matrix(
+        self, csv_path: str, category: str, file_id: str
+    ) -> Dict[str, Dict[str, float]]:
         """Build complementarity matrix for complete profile vectors using ChatGPT analysis"""
-        print(f"🔨 Building {category} complementarity matrix with complete profiles...")
+        logger.info(
+            f"🔨 Building {category} complementarity matrix with complete profiles..."
+        )
 
         # Extract complete profile vectors from dataset
         profile_vectors = self._extract_profile_vectors(csv_path, category)
         cache_key = self._get_cache_key(category, file_id)
 
         profile_list = sorted(list(profile_vectors))
-        print(f"Found {len(profile_list)} unique {category} profile vectors")
+        logger.info(f"Found {len(profile_list)} unique {category} profile vectors")
 
         matrix = {}
 
@@ -137,9 +152,11 @@ class MatrixBuilder:
         for target_profile in profile_list:
             other_profiles = [p for p in profile_list if p != target_profile]
             if other_profiles:
-                tasks.append(self.business_analyzer.get_profile_complementarity(
-                    target_profile, other_profiles, category
-                ))
+                tasks.append(
+                    self.business_analyzer.get_profile_complementarity(
+                        target_profile, other_profiles, category
+                    )
+                )
                 target_profiles.append(target_profile)
 
         # Execute all tasks concurrently
@@ -148,17 +165,21 @@ class MatrixBuilder:
         # Process results
         for target_profile, result in zip(target_profiles, results):
             if isinstance(result, Exception):
-                print(f"  ✗ Error processing {target_profile}: {result}")
-                matrix[target_profile] = {profile: 0.5 for profile in profile_list if profile != target_profile}
+                logger.info(f"  ✗ Error processing {target_profile}: {result}")
+                matrix[target_profile] = {
+                    profile: 0.5
+                    for profile in profile_list
+                    if profile != target_profile
+                }
             else:
                 matrix[target_profile] = result
-                print(f"  ✓ {target_profile}: {len(result)} relationships")
+                logger.info(f"  ✓ {target_profile}: {len(result)} relationships")
 
         # Cache the matrix
-        print(f"💾 Caching {category} complementarity matrix...")
+        logger.info(f"💾 Caching {category} complementarity matrix...")
         self.cache.set(cache_key, json.dumps(matrix))
 
-        print(f"✅ {category.capitalize()} complementarity matrix complete!")
+        logger.info(f"✅ {category.capitalize()} complementarity matrix complete!")
         return matrix
 
     def _extract_profile_vectors(self, csv_path: str, category: str) -> Set[str]:
@@ -187,12 +208,18 @@ class MatrixBuilder:
     def _extract_experience_tags(self, csv_path: str) -> set:
         """Extract experience tags from dataset"""
         import pandas as pd
+
         df = pd.read_csv(csv_path)
 
         experience_tags = set()
         for _, row in df.iterrows():
             if pd.notna(row["Professional Identity - Experience Level"]):
-                tags = [tag.strip() for tag in str(row["Professional Identity - Experience Level"]).split("|")]
+                tags = [
+                    tag.strip()
+                    for tag in str(
+                        row["Professional Identity - Experience Level"]
+                    ).split("|")
+                ]
                 experience_tags.update(tag for tag in tags if tag.strip())
 
         return experience_tags
@@ -204,10 +231,10 @@ class MatrixBuilder:
         if cached_graph:
             try:
                 graph_data = json.loads(cached_graph)
-                print(f"✅ Loaded business causal graph from cache")
+                logger.info(f"✅ Loaded business causal graph from cache")
                 return True
             except json.JSONDecodeError:
-                print(f"⚠️ Invalid cached business graph, will rebuild")
+                logger.info(f"⚠️ Invalid cached business graph, will rebuild")
                 return False
         return False
 
@@ -218,10 +245,12 @@ class MatrixBuilder:
         if cached_matrix:
             try:
                 matrix_data = json.loads(cached_matrix)
-                print(f"✅ Loaded persona matrix from cache ({len(matrix_data)} entries)")
+                logger.info(
+                    f"✅ Loaded persona matrix from cache ({len(matrix_data)} entries)"
+                )
                 return True
             except json.JSONDecodeError:
-                print(f"⚠️ Invalid cached persona matrix, will rebuild")
+                logger.info(f"⚠️ Invalid cached persona matrix, will rebuild")
                 return False
         return False
 
@@ -232,10 +261,12 @@ class MatrixBuilder:
         if cached_matrix:
             try:
                 matrix_data = json.loads(cached_matrix)
-                print(f"✅ Loaded experience matrix from cache ({len(matrix_data)} entries)")
+                logger.info(
+                    f"✅ Loaded experience matrix from cache ({len(matrix_data)} entries)"
+                )
                 return True
             except json.JSONDecodeError:
-                print(f"⚠️ Invalid cached experience matrix, will rebuild")
+                logger.info(f"⚠️ Invalid cached experience matrix, will rebuild")
                 return False
         return False
 
@@ -246,52 +277,64 @@ class MatrixBuilder:
         if cached_matrix:
             try:
                 matrix_data = json.loads(cached_matrix)
-                print(f"✅ Loaded role matrix from cache ({len(matrix_data)} entries)")
+                logger.info(
+                    f"✅ Loaded role matrix from cache ({len(matrix_data)} entries)"
+                )
                 return True
             except json.JSONDecodeError:
-                print(f"⚠️ Invalid cached role matrix, will rebuild")
+                logger.info(f"⚠️ Invalid cached role matrix, will rebuild")
                 return False
         return False
 
     # Complementarity calculation methods for GraphBuilder
-    async def precompute_complementarity_matrices(self, csv_path: str, file_id: str) -> None:
+    async def precompute_complementarity_matrices(
+        self, csv_path: str, file_id: str
+    ) -> None:
         """Load/build all complementarity matrices and load into memory"""
 
         # Load/build business complementarity matrix
         if not self.load_causal_graph_from_redis(file_id):
-            print("🔧 Business complementarity matrix not found. Building automatically...")
+            logger.info(
+                "🔧 Business complementarity matrix not found. Building automatically..."
+            )
             try:
                 await self.build_causal_relationship_graph(csv_path, file_id)
-                print("✅ Business complementarity matrix built and cached")
+                logger.info("✅ Business complementarity matrix built and cached")
             except Exception as e:
-                print(f"⚠️ Error building business matrix: {e}")
+                logger.info(f"⚠️ Error building business matrix: {e}")
 
         # Load/build experience complementarity matrix
         if not self.load_experience_matrix_from_redis(file_id):
-            print("🔧 Experience complementarity matrix not found. Building automatically...")
+            logger.info(
+                "🔧 Experience complementarity matrix not found. Building automatically..."
+            )
             try:
                 await self.build_complementarity_matrix(csv_path, "experience", file_id)
-                print("✅ Experience complementarity matrix built and cached")
+                logger.info("✅ Experience complementarity matrix built and cached")
             except Exception as e:
-                print(f"⚠️ Error building experience matrix: {e}")
+                logger.info(f"⚠️ Error building experience matrix: {e}")
 
         # Load/build role complementarity matrix
         if not self.load_role_matrix_from_redis(file_id):
-            print("🔧 Role complementarity matrix not found. Building automatically...")
+            logger.info(
+                "🔧 Role complementarity matrix not found. Building automatically..."
+            )
             try:
                 await self.build_complementarity_matrix(csv_path, "role", file_id)
-                print("✅ Role complementarity matrix built and cached")
+                logger.info("✅ Role complementarity matrix built and cached")
             except Exception as e:
-                print(f"⚠️ Error building role matrix: {e}")
+                logger.info(f"⚠️ Error building role matrix: {e}")
 
         # Load/build persona complementarity matrix
         if not self.load_persona_matrix_from_redis(file_id):
-            print("🔧 Persona complementarity matrix not found. Building automatically...")
+            logger.info(
+                "🔧 Persona complementarity matrix not found. Building automatically..."
+            )
             try:
                 await self.build_complementarity_matrix(csv_path, "persona", file_id)
-                print("✅ Persona complementarity matrix built and cached")
+                logger.info("✅ Persona complementarity matrix built and cached")
             except Exception as e:
-                print(f"⚠️ Error building persona matrix: {e}")
+                logger.info(f"⚠️ Error building persona matrix: {e}")
 
         # Load matrices into memory for fast access
         self._load_matrices_from_cache(file_id)
@@ -309,7 +352,7 @@ class MatrixBuilder:
                 self._matrices["market"] = business_data.get("market", {})
                 self._matrices["offering"] = business_data.get("offering", {})
             except json.JSONDecodeError:
-                print(f"⚠️ Invalid cached business matrix data")
+                logger.info(f"⚠️ Invalid cached business matrix data")
                 self._matrices["industry"] = {}
                 self._matrices["market"] = {}
                 self._matrices["offering"] = {}
@@ -328,12 +371,14 @@ class MatrixBuilder:
                 try:
                     self._matrices[matrix_type] = json.loads(cached_data)
                 except json.JSONDecodeError:
-                    print(f"⚠️ Invalid cached {matrix_type} matrix data")
+                    logger.info(f"⚠️ Invalid cached {matrix_type} matrix data")
                     self._matrices[matrix_type] = {}
             else:
                 self._matrices[matrix_type] = {}
 
-    def _get_complementarity_score(self, person_i: int, person_j: int, category: str) -> float:
+    def _get_complementarity_score(
+        self, person_i: int, person_j: int, category: str
+    ) -> float:
         """Get complementarity score between two complete profile vectors from cached matrices"""
 
         person_i_profile = self._get_person_profile_vector(person_i, category)
@@ -346,7 +391,9 @@ class MatrixBuilder:
 
         if person_i_profile in matrix and person_j_profile in matrix[person_i_profile]:
             return matrix[person_i_profile][person_j_profile]
-        elif person_j_profile in matrix and person_i_profile in matrix[person_j_profile]:
+        elif (
+            person_j_profile in matrix and person_i_profile in matrix[person_j_profile]
+        ):
             return matrix[person_j_profile][person_i_profile]
 
         return 0.5  # Default neutral score
@@ -372,7 +419,7 @@ class MatrixBuilder:
 
     async def precompute_person_tags(self, df: pd.DataFrame, embedding_builder) -> None:
         """Precompute all person profile vectors for fast lookups"""
-        print("⚡ Precomputing person profile vectors...")
+        logger.info("⚡ Precomputing person profile vectors...")
 
         for idx, row in df.iterrows():
             business = await embedding_builder.extract_business_tags_for_person(row)
@@ -380,41 +427,62 @@ class MatrixBuilder:
             # Store complete profile vectors as they appear in the dataset
             self._person_tags_cache[idx] = {
                 # Complete profile vectors (raw cell values)
-                "role_profile": str(row.get("Professional Identity - Role Specification", "")).strip(),
-                "experience_profile": str(row.get("Professional Identity - Experience Level", "")).strip(),
+                "role_profile": str(
+                    row.get("Professional Identity - Role Specification", "")
+                ).strip(),
+                "experience_profile": str(
+                    row.get("Professional Identity - Experience Level", "")
+                ).strip(),
                 "persona_profile": str(row.get("All Persona Titles", "")).strip(),
-
                 # Business profile vectors (complete cell values)
-                "industry_profile": str(row.get("Company Identity - Industry Classification", "")).strip(),
-                "market_profile": str(row.get("Company Market - Market Traction", "")).strip(),
-                "offering_profile": str(row.get("Company Offering - Value Proposition", "")).strip(),
-
+                "industry_profile": str(
+                    row.get("Company Identity - Industry Classification", "")
+                ).strip(),
+                "market_profile": str(
+                    row.get("Company Market - Market Traction", "")
+                ).strip(),
+                "offering_profile": str(
+                    row.get("Company Offering - Value Proposition", "")
+                ).strip(),
                 # Business tag lists (for backward compatibility)
                 "industry": business["industry"],
                 "market": business["market"],
                 "offering": business["offering"],
-
                 # Keep individual tags for backward compatibility if needed
                 "roles": tag_extractor.extract_tags(
-                    str(row.get("Professional Identity - Role Specification", "")), "role_spec"
+                    str(row.get("Professional Identity - Role Specification", "")),
+                    "role_spec",
                 ),
                 "experience": tag_extractor.extract_tags(
-                    str(row.get("Professional Identity - Experience Level", "")), "experience"
+                    str(row.get("Professional Identity - Experience Level", "")),
+                    "experience",
                 ),
                 "personas": tag_extractor.extract_tags(
                     str(row.get("All Persona Titles", "")), "personas"
                 ),
             }
 
-    def get_all_complementarities(self, person_i: int, person_j: int) -> Dict[str, float]:
+    def get_all_complementarities(
+        self, person_i: int, person_j: int
+    ) -> Dict[str, float]:
         """Get all complementarity scores between two people"""
 
         role_comp = self._get_complementarity_score(person_i, person_j, category="role")
-        exp_comp = self._get_complementarity_score(person_i, person_j, category="experience")
-        persona_comp = self._get_complementarity_score(person_i, person_j, category="persona")
-        industry_comp = self._get_complementarity_score(person_i, person_j, category="industry")
-        market_comp = self._get_complementarity_score(person_i, person_j, category="market")
-        offering_comp = self._get_complementarity_score(person_i, person_j, category="offering")
+        exp_comp = self._get_complementarity_score(
+            person_i, person_j, category="experience"
+        )
+        persona_comp = self._get_complementarity_score(
+            person_i, person_j, category="persona"
+        )
+        industry_comp = self._get_complementarity_score(
+            person_i, person_j, category="industry"
+        )
+        market_comp = self._get_complementarity_score(
+            person_i, person_j, category="market"
+        )
+        offering_comp = self._get_complementarity_score(
+            person_i, person_j, category="offering"
+        )
 
         return {
             "role": role_comp,

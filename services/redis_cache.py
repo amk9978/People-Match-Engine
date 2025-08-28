@@ -1,7 +1,7 @@
-#!/usr/bin/env python3
 
 import hashlib
 import json
+import logging
 import os
 from typing import Dict, List, Optional
 
@@ -9,6 +9,8 @@ import redis
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 
 class RedisEmbeddingCache:
@@ -25,9 +27,9 @@ class RedisEmbeddingCache:
             self.redis_client = redis.from_url(self.redis_url, decode_responses=True)
             # Test connection
             self.redis_client.ping()
-            print(f"Connected to Redis at {self.redis_url}")
+            logger.info(f"Connected to Redis at {self.redis_url}")
         except Exception as e:
-            print(f"Failed to connect to Redis: {e}")
+            logger.info(f"Failed to connect to Redis: {e}")
             self.redis_client = None
 
     def _make_key(self, tag: str) -> str:
@@ -46,7 +48,7 @@ class RedisEmbeddingCache:
             if cached_data:
                 return json.loads(cached_data)
         except Exception as e:
-            print(f"Error getting from cache: {e}")
+            logger.info(f"Error getting from cache: {e}")
 
         return None
 
@@ -66,7 +68,7 @@ class RedisEmbeddingCache:
 
             return True
         except Exception as e:
-            print(f"Error setting cache: {e}")
+            logger.info(f"Error setting cache: {e}")
             return False
 
     def exists(self, tag: str) -> bool:
@@ -78,7 +80,7 @@ class RedisEmbeddingCache:
             key = self._make_key(tag)
             return self.redis_client.exists(key) > 0
         except Exception as e:
-            print(f"Error checking cache: {e}")
+            logger.info(f"Error checking cache: {e}")
             return False
 
     def get_cache_info(self) -> Dict:
@@ -103,7 +105,7 @@ class RedisEmbeddingCache:
                 ),
             }
         except Exception as e:
-            print(f"Error getting cache info: {e}")
+            logger.info(f"Error getting cache info: {e}")
             return {"status": "error", "error": str(e)}
 
     def clear_embeddings(self):
@@ -116,9 +118,9 @@ class RedisEmbeddingCache:
             keys = list(self.redis_client.scan_iter(match=pattern))
             if keys:
                 deleted = self.redis_client.delete(*keys)
-                print(f"Cleared {deleted} embedding keys")
+                logger.info(f"Cleared {deleted} embedding keys")
                 return deleted
             return 0
         except Exception as e:
-            print(f"Error clearing cache: {e}")
+            logger.info(f"Error clearing cache: {e}")
             return 0

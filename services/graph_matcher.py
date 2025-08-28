@@ -1,7 +1,7 @@
-#!/usr/bin/env python3
-
+import logging
 import os
 from typing import Dict, List, Set, Tuple
+
 import networkx as nx
 import numpy as np
 import pandas as pd
@@ -14,36 +14,38 @@ from services.redis_cache import RedisEmbeddingCache
 from services.semantic_person_deduplicator import SemanticPersonDeduplicator
 
 load_dotenv()
+logger = logging.getLogger(__name__)
+
 
 # TODO: Remove this class as it doesn't add anything
 class GraphMatcher:
     """Thin orchestrator that delegates all work to specialized services"""
-    
+
     def __init__(self, csv_path: str, min_density: float = None):
         self.csv_path = csv_path
         self.min_density = min_density or float(os.getenv("min_density", 0.1))
-        
+
         self.graph_builder = GraphBuilder(csv_path, min_density)
-        
+
         self.df = None
         self.person_vectors = None
         self.graph = None
         self.cache = RedisEmbeddingCache()
         self.person_deduplicator = SemanticPersonDeduplicator()
 
-    async def run_analysis(self) -> Dict:
+    async def run_analysis(self, user_prompt: str = None) -> Dict:
         """Run complete analysis pipeline - delegates to GraphBuilder"""
-        print("Starting multi-feature graph matching analysis...")
-        
-        result = await self.graph_builder.run_complete_analysis()
-        
+        logger.info("Starting multi-feature graph matching analysis...")
+
+        result = await self.graph_builder.run_complete_analysis("analysis", user_prompt)
+
         self.df = self.graph_builder.df
         self.graph = self.graph_builder.graph
-        
-        print(f"\nAnalysis complete!")
-        print(f"Found largest dense subgraph with {result['size']} people")
-        print(f"Density: {result['density']:.4f} (threshold: {self.min_density})")
-        
+
+        logger.info(f"\nAnalysis complete!")
+        logger.info(f"Found largest dense subgraph with {result['size']} people")
+        logger.info(f"Density: {result['density']:.4f} (threshold: {self.min_density})")
+
         return result
 
     def load_data(self) -> pd.DataFrame:
@@ -56,23 +58,45 @@ class GraphMatcher:
         return self.graph_builder.csv_loader.filter_incomplete_rows(df)
 
     async def preprocess_tags(
-        self, similarity_threshold: float = 0.7, fuzzy_threshold: float = 0.90, force_rebuild: bool = False
+        self,
+        similarity_threshold: float = 0.7,
+        fuzzy_threshold: float = 0.90,
+        force_rebuild: bool = False,
     ) -> Dict[str, any]:
         """Delegate to GraphBuilder"""
-        return await self.graph_builder.preprocess_tags(similarity_threshold, fuzzy_threshold, force_rebuild)
+        return await self.graph_builder.preprocess_tags(
+            similarity_threshold, fuzzy_threshold, force_rebuild
+        )
 
     def extract_tags(self, persona_titles: str) -> List[str]:
         """Delegate to GraphBuilder"""
         return self.graph_builder.extract_tags(persona_titles)
 
-    def calculate_2plus2_score(self, role_sim: float, exp_sim: float, role_comp: float, exp_comp: float,
-                               industry_sim: float, market_sim: float, offering_sim: float, persona_sim: float,
-                               business_comp: float, weights: List[float]) -> float:
+    def calculate_2plus2_score(
+        self,
+        role_sim: float,
+        exp_sim: float,
+        role_comp: float,
+        exp_comp: float,
+        industry_sim: float,
+        market_sim: float,
+        offering_sim: float,
+        persona_sim: float,
+        business_comp: float,
+        weights: List[float],
+    ) -> float:
         """Delegate to GraphBuilder"""
         return self.graph_builder.scorer.calculate_2plus2_score(
-            role_sim, exp_sim, role_comp, exp_comp,
-            industry_sim, market_sim, offering_sim, persona_sim,
-            business_comp, weights
+            role_sim,
+            exp_sim,
+            role_comp,
+            exp_comp,
+            industry_sim,
+            market_sim,
+            offering_sim,
+            persona_sim,
+            business_comp,
+            weights,
         )
 
     async def get_tuned_2plus2_weights(self, user_prompt: str = None) -> List[float]:
@@ -81,7 +105,9 @@ class GraphMatcher:
 
     async def extract_and_deduplicate_tags(self, text: str, category: str) -> List[str]:
         """Delegate to GraphBuilder"""
-        return await self.graph_builder.embedding_builder.extract_and_deduplicate_tags(text, category)
+        return await self.graph_builder.embedding_builder.extract_and_deduplicate_tags(
+            text, category
+        )
 
     async def get_cached_embedding(self, tag: str) -> List[float]:
         """Delegate to GraphBuilder"""
@@ -89,25 +115,50 @@ class GraphMatcher:
 
     async def extract_business_tags_for_person(self, row) -> Dict[str, List[str]]:
         """Delegate to GraphBuilder"""
-        return await self.graph_builder.embedding_builder.extract_business_tags_for_person(row)
+        return (
+            await self.graph_builder.embedding_builder.extract_business_tags_for_person(
+                row
+            )
+        )
 
     async def embed_features(self) -> Dict[str, np.ndarray]:
         """Delegate to GraphBuilder"""
         return await self.graph_builder.embed_features()
 
-    async def create_graph(self, feature_embeddings: Dict[str, np.ndarray], file_id: str, user_prompt: str = None) -> nx.Graph:
+    async def create_graph(
+        self,
+        feature_embeddings: Dict[str, np.ndarray],
+        file_id: str,
+        user_prompt: str = None,
+    ) -> nx.Graph:
         """Delegate to GraphBuilder"""
-        self.graph = await self.graph_builder.create_graph(feature_embeddings, file_id, user_prompt)
+        self.graph = await self.graph_builder.create_graph(
+            feature_embeddings, file_id, user_prompt
+        )
         return self.graph
 
-    async def create_graph_optimized(self, feature_embeddings: Dict[str, np.ndarray], file_id: str, user_prompt: str = None) -> nx.Graph:
+    async def create_graph_optimized(
+        self,
+        feature_embeddings: Dict[str, np.ndarray],
+        file_id: str,
+        user_prompt: str = None,
+    ) -> nx.Graph:
         """Delegate to GraphBuilder"""
-        self.graph = await self.graph_builder.create_graph_optimized(feature_embeddings, file_id, user_prompt)
+        self.graph = await self.graph_builder.create_graph_optimized(
+            feature_embeddings, file_id, user_prompt
+        )
         return self.graph
 
-    async def create_graph_faiss(self, feature_embeddings: Dict[str, np.ndarray], file_id: str, user_prompt: str = None) -> nx.Graph:
+    async def create_graph_faiss(
+        self,
+        feature_embeddings: Dict[str, np.ndarray],
+        file_id: str,
+        user_prompt: str = None,
+    ) -> nx.Graph:
         """Delegate to GraphBuilder"""
-        self.graph = await self.graph_builder.create_graph_faiss(feature_embeddings, file_id, user_prompt)
+        self.graph = await self.graph_builder.create_graph_faiss(
+            feature_embeddings, file_id, user_prompt
+        )
         return self.graph
 
     def calculate_subgraph_density(self, nodes: Set[int]) -> float:
@@ -123,11 +174,15 @@ class GraphMatcher:
         return self.graph_builder.find_largest_dense_subgraph()
 
     # Analysis methods - delegate to GraphBuilder
-    def get_subgraph_info(self, nodes: Set[int], feature_embeddings: Dict[str, np.ndarray]) -> Dict:
+    def get_subgraph_info(
+        self, nodes: Set[int], feature_embeddings: Dict[str, np.ndarray]
+    ) -> Dict:
         """Delegate to GraphBuilder"""
         return self.graph_builder.get_subgraph_info(nodes, feature_embeddings)
 
-    def analyze_subgraph_centroids(self, nodes: Set[int], feature_embeddings: Dict[str, np.ndarray]) -> Dict:
+    def analyze_subgraph_centroids(
+        self, nodes: Set[int], feature_embeddings: Dict[str, np.ndarray]
+    ) -> Dict:
         """Delegate to GraphBuilder"""
         return self.graph_builder.analyze_subgraph_centroids(nodes, feature_embeddings)
 
@@ -135,19 +190,27 @@ class GraphMatcher:
         """Delegate to GraphBuilder"""
         return self.graph_builder.analyze_subgroups(nodes)
 
-    def calculate_centroid_and_insights(self, nodes: Set[int], feature_embeddings: Dict[str, np.ndarray]) -> Dict:
+    def calculate_centroid_and_insights(
+        self, nodes: Set[int], feature_embeddings: Dict[str, np.ndarray]
+    ) -> Dict:
         """Delegate to analyze_subgraph_centroids"""
         return self.analyze_subgraph_centroids(nodes, feature_embeddings)
 
-    def find_closest_tags_to_centroid(self, centroid: np.ndarray, feature_name: str) -> List[Tuple[str, float]]:
+    def find_closest_tags_to_centroid(
+        self, centroid: np.ndarray, feature_name: str
+    ) -> List[Tuple[str, float]]:
         """Compatibility method"""
         return []
 
-    def find_subgroups_in_subgraph(self, nodes: Set[int], min_subgroup_size: int = 3) -> List[Dict]:
+    def find_subgroups_in_subgraph(
+        self, nodes: Set[int], min_subgroup_size: int = 3
+    ) -> List[Dict]:
         """Delegate to analyze_subgroups"""
         result = self.analyze_subgroups(nodes)
         return [sg for sg in result["subgroups"] if sg["size"] >= min_subgroup_size]
 
-    def get_expansion_recommendations(self, nodes: Set[int], feature_embeddings: Dict[str, np.ndarray], top_n: int = 3) -> List[Dict]:
+    def get_expansion_recommendations(
+        self, nodes: Set[int], feature_embeddings: Dict[str, np.ndarray], top_n: int = 3
+    ) -> List[Dict]:
         """Compatibility method"""
         return []

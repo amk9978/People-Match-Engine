@@ -1,13 +1,16 @@
-#!/usr/bin/env python3
-
+import hashlib
 import json
+import logging
 import os
 import re
 from typing import Dict, List, Set
+
 import pandas as pd
 from openai import AsyncOpenAI
 
 from services.redis_cache import RedisEmbeddingCache
+
+logger = logging.getLogger(__name__)
 
 
 class BusinessAnalyzer:
@@ -36,14 +39,14 @@ class BusinessAnalyzer:
                     tags = [tag.strip() for tag in str(row[column_name]).split("|")]
                     business_tags[category].update(tag for tag in tags if tag)
 
-        print(f"Extracted business tags:")
+        logger.info(f"Extracted business tags:")
         for category, tags in business_tags.items():
-            print(f"  {category}: {len(tags)} unique tags")
+            logger.info(f"  {category}: {len(tags)} unique tags")
 
         return business_tags
 
     async def get_causal_relationships_for_tag(
-        self, target_tag: str, comparison_tags: List[str], category: str
+            self, target_tag: str, comparison_tags: List[str], category: str
     ) -> Dict[str, float]:
         """Get causal relationship scores for one tag against a list of others"""
 
@@ -84,7 +87,7 @@ Your response:"""
             response = await self.openai_client.chat.completions.create(
                 model="gpt-4",
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.3,
+                temperature=0,
                 max_tokens=1000,
             )
 
@@ -96,18 +99,18 @@ Your response:"""
             # Cache the result
             self.cache.set(cache_key, json.dumps(causal_scores))
 
-            print(
+            logger.info(
                 f"  ✓ Got causal scores for {target_tag} vs {len(causal_scores)} tags"
             )
             return causal_scores
 
         except Exception as e:
-            print(f"  ✗ Error getting causal scores for {target_tag}: {e}")
+            logger.info(f"  ✗ Error getting causal scores for {target_tag}: {e}")
             # Return default moderate scores
             return {tag: 0.5 for tag in comparison_tags}
 
     def _parse_chatgpt_response(
-        self, result_text: str, comparison_tags: List[str]
+            self, result_text: str, comparison_tags: List[str]
     ) -> Dict[str, float]:
         """Parse ChatGPT response with multiple fallback strategies"""
 
@@ -142,15 +145,15 @@ Your response:"""
         # Strategy 4: Extract key-value pairs manually
         try:
             scores = {}
-            lines = result_text.split('\n')
+            lines = result_text.split("\n")
             for line in lines:
-                if ':' in line and any(tag in line for tag in comparison_tags):
+                if ":" in line and any(tag in line for tag in comparison_tags):
                     for tag in comparison_tags:
                         if tag in line:
                             # Try to extract number after colon
-                            parts = line.split(':')
+                            parts = line.split(":")
                             if len(parts) >= 2:
-                                score_text = parts[1].strip().rstrip(',').rstrip('}')
+                                score_text = parts[1].strip().rstrip(",").rstrip("}")
                                 try:
                                     score = float(score_text)
                                     if 0.0 <= score <= 1.0:
@@ -158,25 +161,25 @@ Your response:"""
                                         break
                                 except ValueError:
                                     pass
-            
+
             if scores:
                 # Fill in missing tags with default score
                 for tag in comparison_tags:
                     if tag not in scores:
                         scores[tag] = 0.5
                 return scores
-                
+
         except Exception:
             pass
 
         # Final fallback: Return moderate scores for all
-        print(f"  ⚠️ Could not parse ChatGPT response, using fallback scores")
+        logger.info(f"  ⚠️ Could not parse ChatGPT response, using fallback scores")
         return {tag: 0.5 for tag in comparison_tags}
 
     def extract_persona_tags_from_dataset(self, csv_path: str) -> Set[str]:
         """Extract all unique persona tags from the dataset"""
         df = pd.read_csv(csv_path)
-        
+
         persona_tags = set()
         for _, row in df.iterrows():
             if pd.notna(row["All Persona Titles"]):
@@ -186,25 +189,27 @@ Your response:"""
                     clean_tag = tag.strip()
                     if clean_tag and len(clean_tag) > 2:
                         persona_tags.add(clean_tag)
-        
-        print(f"Extracted {len(persona_tags)} unique persona tags from dataset")
+
+        logger.info(f"Extracted {len(persona_tags)} unique persona tags from dataset")
         return persona_tags
 
     def extract_role_tags_from_dataset(self, csv_path: str) -> Set[str]:
         """Extract all unique role specification tags from the dataset"""
         df = pd.read_csv(csv_path)
-        
+
         role_tags = set()
         for _, row in df.iterrows():
             if pd.notna(row["Professional Identity - Role Specification"]):
                 # Split by pipe and clean tags
-                raw_tags = str(row["Professional Identity - Role Specification"]).split("|")
+                raw_tags = str(row["Professional Identity - Role Specification"]).split(
+                    "|"
+                )
                 for tag in raw_tags:
                     clean_tag = tag.strip()
                     if clean_tag and len(clean_tag) > 2:
                         role_tags.add(clean_tag)
-        
-        print(f"Extracted {len(role_tags)} unique role tags from dataset")
+
+        logger.info(f"Extracted {len(role_tags)} unique role tags from dataset")
         return role_tags
 
     async def analyze_role_complementarity(self, role1: str, role2: str) -> float:
@@ -238,12 +243,12 @@ RESPOND WITH ONLY A NUMBER BETWEEN 0.0 AND 1.0:"""
             response = await self.openai_client.chat.completions.create(
                 model="gpt-4",
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.2,
+                temperature=0,
                 max_tokens=10,
             )
 
             result_text = response.choices[0].message.content.strip()
-            
+
             # Try to extract a float
             try:
                 score = float(result_text)
@@ -253,28 +258,33 @@ RESPOND WITH ONLY A NUMBER BETWEEN 0.0 AND 1.0:"""
                     return score
             except ValueError:
                 pass
-            
+
             # Fallback: return moderate score
             self.cache.set(cache_key, 0.5)
             return 0.5
 
         except Exception as e:
-            print(f"Error analyzing role complementarity for {role1} vs {role2}: {e}")
+            logger.info(
+                f"Error analyzing role complementarity for {role1} vs {role2}: {e}"
+            )
             self.cache.set(cache_key, 0.5)
             return 0.5
 
     async def get_profile_complementarity(
-        self, target_profile: str, comparison_profiles: List[str], category: str
+            self, target_profile: str, comparison_profiles: List[str], category: str
     ) -> Dict[str, float]:
         """Get complementarity scores between complete profile vectors"""
-
-        # Check cache first
-        cache_key = f"profile_complementarity_{category}_{hash(target_profile)}_vs_{len(comparison_profiles)}"
+        target_hash = hashlib.md5(target_profile.encode()).hexdigest()[:8]
+        comparison_hash = hashlib.md5(
+            str(sorted(comparison_profiles)).encode()
+        ).hexdigest()[:8]
+        cache_key = (
+            f"profile_complementarity_{category}_{target_hash}_vs_{comparison_hash}"
+        )
         cached_result = self.cache.get(cache_key)
         if cached_result and isinstance(cached_result, str):
             return json.loads(cached_result)
 
-        # Prepare ChatGPT prompt for complete profile comparison
         comparison_list = "\n".join([f"- {profile}" for profile in comparison_profiles])
 
         prompt = f"""
@@ -304,21 +314,27 @@ Your response:"""
             response = await self.openai_client.chat.completions.create(
                 model="gpt-4",
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.3,
+                temperature=0,
                 max_tokens=1500,
             )
 
             result_text = response.choices[0].message.content.strip()
 
             # Enhanced JSON parsing
-            complementarity_scores = self._parse_chatgpt_response(result_text, comparison_profiles)
+            complementarity_scores = self._parse_chatgpt_response(
+                result_text, comparison_profiles
+            )
 
             # Cache the result
             self.cache.set(cache_key, json.dumps(complementarity_scores))
 
-            print(f"  ✓ Got profile complementarity for {target_profile[:50]}... vs {len(complementarity_scores)} profiles")
+            logger.info(
+                f"  ✓ Got profile complementarity for {target_profile[:50]}... vs {len(complementarity_scores)} profiles"
+            )
             return complementarity_scores
 
         except Exception as e:
-            print(f"⚠️ Error getting profile complementarity for {target_profile}: {e}")
+            logger.info(
+                f"⚠️ Error getting profile complementarity for {target_profile}: {e}"
+            )
             return {profile: 0.5 for profile in comparison_profiles}

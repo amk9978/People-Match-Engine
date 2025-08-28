@@ -1,9 +1,11 @@
-#!/usr/bin/env python3
 
 import json
+import logging
 from typing import Dict
 
 from fastapi import WebSocket
+
+logger = logging.getLogger(__name__)
 
 
 class NotificationService:
@@ -16,13 +18,13 @@ class NotificationService:
         """Connect a new WebSocket client"""
         await websocket.accept()
         self.active_connections[client_id] = websocket
-        print(f"Client {client_id} connected via WebSocket")
+        logger.info(f"Client {client_id} connected via WebSocket")
 
     def disconnect(self, client_id: str):
         """Disconnect a WebSocket client"""
         if client_id in self.active_connections:
             del self.active_connections[client_id]
-            print(f"Client {client_id} disconnected")
+            logger.info(f"Client {client_id} disconnected")
 
     async def send_personal_message(self, message: dict, client_id: str):
         """Send message to specific client"""
@@ -30,7 +32,7 @@ class NotificationService:
             try:
                 await self.active_connections[client_id].send_text(json.dumps(message))
             except Exception as e:
-                print(f"Error sending message to {client_id}: {e}")
+                logger.info(f"Error sending message to {client_id}: {e}")
                 self.disconnect(client_id)
 
     async def broadcast_job_update(self, job_id: str, update: dict):
@@ -43,7 +45,7 @@ class NotificationService:
             try:
                 await websocket.send_text(json.dumps(message))
             except Exception as e:
-                print(f"Error broadcasting to {client_id}: {e}")
+                logger.info(f"Error broadcasting to {client_id}: {e}")
                 disconnected_clients.append(client_id)
 
         # Clean up disconnected clients

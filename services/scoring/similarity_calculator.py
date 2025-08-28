@@ -1,8 +1,10 @@
-#!/usr/bin/env python3
+import logging
+from typing import Dict, Optional
 
 import numpy as np
-from typing import Dict, Optional
 from sklearn.metrics.pairwise import cosine_similarity
+
+logger = logging.getLogger(__name__)
 
 
 class SimilarityCalculator:
@@ -11,18 +13,31 @@ class SimilarityCalculator:
     def __init__(self):
         self._cached_matrices = {}
 
-    def precompute_similarity_matrices(self, feature_embeddings: Dict[str, np.ndarray]) -> None:
+    def precompute_similarity_matrices(
+        self, feature_embeddings: Dict[str, np.ndarray]
+    ) -> None:
         """Precompute similarity matrices once for all features"""
-        print("⚡ Precomputing similarity matrices...")
-        
-        feature_names = ["role_spec", "experience", "personas", "industry", "market", "offering"]
-        
+        logger.info("⚡ Precomputing similarity matrices...")
+
+        feature_names = [
+            "role_spec",
+            "experience",
+            "personas",
+            "industry",
+            "market",
+            "offering",
+        ]
+
         for feature_name in feature_names:
             if feature_name in feature_embeddings:
-                self._cached_matrices[feature_name] = cosine_similarity(feature_embeddings[feature_name])
-                print(f"   ✓ {feature_name} similarity matrix computed")
+                self._cached_matrices[feature_name] = cosine_similarity(
+                    feature_embeddings[feature_name]
+                )
+                logger.info(f"   ✓ {feature_name} similarity matrix computed")
 
-    def get_similarity_score(self, feature_name: str, person_i: int, person_j: int) -> float:
+    def get_similarity_score(
+        self, feature_name: str, person_i: int, person_j: int
+    ) -> float:
         """Get similarity score between two people for a specific feature"""
         if feature_name in self._cached_matrices:
             return self._cached_matrices[feature_name][person_i][person_j]

@@ -1,6 +1,4 @@
-#!/usr/bin/env python3
-
-import asyncio
+import logging
 import os
 from typing import List
 
@@ -11,6 +9,7 @@ from openai import AsyncOpenAI
 from services.redis_cache import RedisEmbeddingCache
 
 load_dotenv()
+logger = logging.getLogger(__name__)
 
 
 class EmbeddingService:
@@ -34,7 +33,7 @@ class EmbeddingService:
             self.cache.set(text, embedding)
             return embedding
         except Exception as e:
-            print(f"Error getting embedding for '{text}': {e}")
+            logger.info(f"Error getting embedding for '{text}': {e}")
             return [0.0] * 1536
 
     async def get_embedding_array(self, text: str) -> np.ndarray:
@@ -74,7 +73,9 @@ class EmbeddingService:
             batch_indices = uncached_indices[batch_start:batch_end]
 
             try:
-                print(f"Requesting embeddings for batch of {len(batch_texts)} texts...")
+                logger.info(
+                    f"Requesting embeddings for batch of {len(batch_texts)} texts..."
+                )
 
                 # TRUE BATCHING: Single API call for entire batch
                 response = await self.openai_client.embeddings.create(
@@ -104,11 +105,13 @@ class EmbeddingService:
                     results[original_index] = embedding
                     self.cache.set(original_text, embedding)
 
-                print(f"Successfully processed batch of {len(batch_texts)} embeddings")
+                logger.info(
+                    f"Successfully processed batch of {len(batch_texts)} embeddings"
+                )
 
             except Exception as e:
-                print(f"Error in batch embedding request: {e}")
-                print("Falling back to individual requests for this batch...")
+                logger.info(f"Error in batch embedding request: {e}")
+                logger.info("Falling back to individual requests for this batch...")
 
                 # FALLBACK: Individual requests for failed batch
                 for i, text in enumerate(batch_texts):
@@ -122,7 +125,7 @@ class EmbeddingService:
                         self.cache.set(text, embedding)
 
                     except Exception as individual_error:
-                        print(
+                        logger.info(
                             f"Error getting embedding for '{text}': {individual_error}"
                         )
                         results[original_index] = [0.0] * 1536  # Fallback embedding
@@ -130,12 +133,14 @@ class EmbeddingService:
         # FINAL VALIDATION: Ensure no None values remain
         for i, result in enumerate(results):
             if result is None:
-                print(
+                logger.info(
                     f"Warning: No embedding obtained for text at index {i}: '{texts[i]}'. Using fallback."
                 )
                 results[i] = [0.0] * 1536
 
-        print(f"Batch embedding complete: {len(results)} total embeddings returned")
+        logger.info(
+            f"Batch embedding complete: {len(results)} total embeddings returned"
+        )
         return results
 
 

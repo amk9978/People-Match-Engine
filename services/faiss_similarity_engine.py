@@ -1,9 +1,10 @@
-#!/usr/bin/env python3
-
+import logging
 from typing import Dict, List, Optional, Tuple
 
 import faiss
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 class FAISSSimilarityEngine:
@@ -17,12 +18,12 @@ class FAISSSimilarityEngine:
 
     def build_indices(self, feature_embeddings: Dict[str, np.ndarray]) -> None:
         """Build FAISS indices for each feature type"""
-        print("🔍 Building FAISS indices for efficient similarity search...")
+        logger.info("🔍 Building FAISS indices for efficient similarity search...")
 
         self.person_count = len(next(iter(feature_embeddings.values())))
 
         for feature_name, embeddings in feature_embeddings.items():
-            print(f"  Building index for {feature_name}: {embeddings.shape}")
+            logger.info(f"  Building index for {feature_name}: {embeddings.shape}")
 
             # Ensure embeddings are float32 (FAISS requirement)
             embeddings_f32 = embeddings.astype(np.float32)
@@ -40,7 +41,7 @@ class FAISSSimilarityEngine:
             self.indices[feature_name] = index
             self.embeddings[feature_name] = embeddings_f32
 
-        print(f"✅ Built FAISS indices for {len(self.indices)} feature types")
+        logger.info(f"✅ Built FAISS indices for {len(self.indices)} feature types")
 
     def find_top_k_similar(
         self, feature_name: str, person_index: int, k: int = 50
@@ -71,7 +72,7 @@ class FAISSSimilarityEngine:
         if feature_name not in self.indices:
             raise ValueError(f"No index built for feature: {feature_name}")
 
-        print(
+        logger.info(
             f"🔍 Building sparse similarity matrix for {feature_name} (top-{top_k} per person)"
         )
 
@@ -95,7 +96,7 @@ class FAISSSimilarityEngine:
                 ):
                     sparse_similarities[pair_key] = float(sim_score)
 
-        print(
+        logger.info(
             f"  Generated {len(sparse_similarities)} similarity pairs (vs {self.person_count * (self.person_count - 1) // 2} total possible)"
         )
 
@@ -105,7 +106,9 @@ class FAISSSimilarityEngine:
         self, top_k: int = 50
     ) -> Dict[str, Dict[Tuple[int, int], float]]:
         """Build sparse similarity matrices for all features"""
-        print(f"🚀 Building sparse similarity matrices (top-{top_k} per person)...")
+        logger.info(
+            f"🚀 Building sparse similarity matrices (top-{top_k} per person)..."
+        )
 
         all_sparse_matrices = {}
 
@@ -174,7 +177,9 @@ class FAISSGraphMatcher:
         min_similarity: float = 0.1,
     ) -> Dict[Tuple[int, int], float]:
         """Create sparse similarity graph using FAISS indices"""
-        print(f"🕸️ Creating sparse similarity graph with FAISS (top-{top_k} per person)")
+        logger.info(
+            f"🕸️ Creating sparse similarity graph with FAISS (top-{top_k} per person)"
+        )
 
         # Get sparse matrices for all features
         sparse_matrices = self.similarity_engine.build_all_sparse_matrices(top_k)
@@ -187,7 +192,7 @@ class FAISSGraphMatcher:
         for feature_matrix in sparse_matrices.values():
             all_pairs.update(feature_matrix.keys())
 
-        print(f"🔢 Processing {len(all_pairs)} unique person pairs...")
+        logger.info(f"🔢 Processing {len(all_pairs)} unique person pairs...")
 
         # Calculate weighted similarity for each pair
         for pair in all_pairs:
@@ -207,7 +212,7 @@ class FAISSGraphMatcher:
             if combined_similarity >= min_similarity:
                 combined_edges[pair] = combined_similarity
 
-        print(
+        logger.info(
             f"✅ Generated {len(combined_edges)} edges above similarity threshold {min_similarity}"
         )
 
@@ -222,7 +227,7 @@ class FAISSGraphMatcher:
         sparse_matrices = self.similarity_engine.build_all_sparse_matrices(top_k)
 
         if feature_name not in sparse_matrices:
-            print(f"⚠️ Feature {feature_name} not found in FAISS indices")
+            logger.info(f"⚠️ Feature {feature_name} not found in FAISS indices")
             return {}
 
         feature_matrix = sparse_matrices[feature_name]
@@ -234,7 +239,7 @@ class FAISSGraphMatcher:
             if similarity >= min_similarity
         }
 
-        print(
+        logger.info(
             f"🔍 Found {len(filtered_pairs)} {feature_name} pairs above {min_similarity} threshold"
         )
 
@@ -244,7 +249,7 @@ class FAISSGraphMatcher:
 # Example usage and testing
 if __name__ == "__main__":
     # Test with dummy data
-    print("🧪 Testing FAISS Similarity Engine")
+    logger.info("🧪 Testing FAISS Similarity Engine")
 
     # Create dummy embeddings (1000 people, 1536 dimensions)
     num_people = 1000
@@ -263,9 +268,9 @@ if __name__ == "__main__":
     # Test similarity search
     person_idx = 0
     similarities, indices = engine.find_top_k_similar("role_spec", person_idx, k=10)
-    print(f"\nTop 10 most similar people to person {person_idx} (role_spec):")
+    logger.info(f"\nTop 10 most similar people to person {person_idx} (role_spec):")
     for i, (sim, idx) in enumerate(zip(similarities, indices)):
-        print(f"  {i+1}. Person {idx}: similarity = {sim:.3f}")
+        logger.info(f"  {i+1}. Person {idx}: similarity = {sim:.3f}")
 
     # Test graph creation
     feature_weights = {"role_spec": 0.4, "experience": 0.3, "industry": 0.3}
@@ -274,11 +279,11 @@ if __name__ == "__main__":
         feature_weights, top_k=20
     )
 
-    print(f"\nSparse graph statistics:")
-    print(f"  Total edges: {len(sparse_graph)}")
-    print(
+    logger.info(f"\nSparse graph statistics:")
+    logger.info(f"  Total edges: {len(sparse_graph)}")
+    logger.info(
         f"  Density reduction: {len(sparse_graph)} vs {num_people * (num_people - 1) // 2} possible edges"
     )
-    print(
+    logger.info(
         f"  Compression ratio: {len(sparse_graph) / (num_people * (num_people - 1) // 2) * 100:.2f}%"
     )

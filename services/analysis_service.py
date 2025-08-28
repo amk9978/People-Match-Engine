@@ -1,5 +1,4 @@
-#!/usr/bin/env python3
-
+import logging
 import os
 import tempfile
 import uuid
@@ -10,6 +9,9 @@ import numpy as np
 
 from services.data.embedding_builder import EmbeddingBuilder
 from services.graph_matcher import GraphMatcher
+from services.redis_cache import RedisEmbeddingCache
+
+logger = logging.getLogger(__name__)
 
 
 class AnalysisService:
@@ -17,34 +19,96 @@ class AnalysisService:
 
     def __init__(self):
         self.jobs = {}
+        self.cache = RedisEmbeddingCache(key_prefix="file_mapping")
+        self.results_cache = RedisEmbeddingCache(key_prefix="job_results")
 
     def _serialize_numpy(self, obj):
-        """Convert numpy objects to JSON serializable types"""
+        """Convert numpy objects and other non-JSON types to JSON serializable types"""
         if isinstance(obj, np.ndarray):
             return obj.tolist()
         elif isinstance(obj, np.integer):
             return int(obj)
         elif isinstance(obj, np.floating):
             return float(obj)
+        elif isinstance(obj, (set, frozenset)):
+            return list(obj)
         elif isinstance(obj, dict):
             return {k: self._serialize_numpy(v) for k, v in obj.items()}
         elif isinstance(obj, list):
             return [self._serialize_numpy(item) for item in obj]
         return obj
 
+    def _store_file_mapping(self, file_id: str, filename: str):
+        """Store file_id to filename mapping in Redis"""
+        try:
+            cache_key = f"file_id_to_name_{file_id}"
+            self.cache.set(cache_key, filename)
+
+            # Also store reverse mapping for lookups
+            reverse_key = (
+                f"filename_to_id_{filename.replace('/', '_').replace(' ', '_')}"
+            )
+            self.cache.set(reverse_key, file_id)
+        except Exception as e:
+            logger.info(f"Warning: Could not store file mapping: {e}")
+
+    def get_filename_by_file_id(self, file_id: str) -> Optional[str]:
+        """Get filename by file_id from Redis"""
+        try:
+            cache_key = f"file_id_to_name_{file_id}"
+            return self.cache.get(cache_key)
+        except Exception as e:
+            logger.info(
+                f"Warning: Could not retrieve filename for file_id {file_id}: {e}"
+            )
+            return None
+
+    def get_file_id_by_filename(self, filename: str) -> Optional[str]:
+        """Get file_id by filename from Redis"""
+        try:
+            reverse_key = (
+                f"filename_to_id_{filename.replace('/', '_').replace(' ', '_')}"
+            )
+            return self.cache.get(reverse_key)
+        except Exception as e:
+            logger.info(
+                f"Warning: Could not retrieve file_id for filename {filename}: {e}"
+            )
+            return None
+
+    def _store_job_result(self, job_id: str, result: Dict):
+        """Store completed job result in Redis"""
+        try:
+            import json
+
+            cache_key = f"result_{job_id}"
+            self.results_cache.set(cache_key, json.dumps(result))
+        except Exception as e:
+            logger.info(f"Warning: Could not store job result for {job_id}: {e}")
+
+    def get_job_result(self, job_id: str) -> Optional[Dict]:
+        """Get stored job result from Redis"""
+        try:
+            import json
+
+            cache_key = f"result_{job_id}"
+            result_str = self.results_cache.get(cache_key)
+            return json.loads(result_str) if result_str else None
+        except Exception as e:
+            logger.info(f"Warning: Could not retrieve job result for {job_id}: {e}")
+            return None
+
     def create_job(
-            self,
-            filename: str,
-            min_density: Optional[float] = None,
-            prompt: Optional[str] = None,
-            file_id: Optional[str] = None,
+        self,
+        filename: str,
+        min_density: Optional[float] = None,
+        prompt: Optional[str] = None,
+        file_id: Optional[str] = None,
     ) -> str:
         """Create a new analysis job"""
         job_id = str(uuid.uuid4())
-        
-        # Use provided file_id or generate new one
-        if file_id is None:
-            file_id = str(uuid.uuid4())
+
+        self._store_file_mapping(file_id, filename)
 
         self.jobs[job_id] = {
             "status": "queued",
@@ -86,12 +150,12 @@ class AnalysisService:
         return False
 
     def update_job_status(
-            self,
-            job_id: str,
-            status: str,
-            progress: str = None,
-            result: Dict = None,
-            error: str = None,
+        self,
+        job_id: str,
+        status: str,
+        progress: str = None,
+        result: Dict = None,
+        error: str = None,
     ):
         """Update job status"""
         if job_id in self.jobs:
@@ -105,12 +169,12 @@ class AnalysisService:
             self.jobs[job_id]["timestamp"] = datetime.now()
 
     async def run_analysis(
-            self,
-            job_id: str,
-            csv_path: str,
-            notification_service,
-            min_density: float = None,
-            prompt: Optional[str] = None,
+        self,
+        job_id: str,
+        csv_path: str,
+        notification_service,
+        min_density: float = None,
+        prompt: Optional[str] = None,
     ):
         """Run graph analysis with progress notifications"""
         try:
@@ -164,7 +228,7 @@ class AnalysisService:
             )
 
             file_id = self.jobs[job_id]["file_id"]
-            
+
             # Create modern graph using GraphBuilder's create_graph with user prompt for weight tuning
             await matcher.create_graph(feature_embeddings, file_id, prompt)
             self.update_job_status(job_id, "processing", "Finding dense subgraph...")
@@ -193,6 +257,9 @@ class AnalysisService:
                 os.remove(csv_path)
 
             serialized_result = self._serialize_numpy(result)
+
+            # Store result in Redis for future retrieval
+            self._store_job_result(job_id, serialized_result)
 
             self.update_job_status(
                 job_id, "completed", "Analysis complete", serialized_result
@@ -225,7 +292,7 @@ class FileService:
     async def save_uploaded_file(file) -> str:
         """Save uploaded file to temporary location"""
         with tempfile.NamedTemporaryFile(
-                mode="wb", suffix=".csv", delete=False
+            mode="wb", suffix=".csv", delete=False
         ) as tmp_file:
             content = await file.read()
             tmp_file.write(content)

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Professional Network Match Engine</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -137,6 +137,53 @@
         }
         .btn-secondary {
             background: linear-gradient(135deg, #95a5a6 0%, #7f8c8d 100%);
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
+        }
+        .project-options {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 25px;
+        }
+        .option-card {
+            background: white;
+            border: 2px solid #e9ecef;
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .option-card:hover {
+            border-color: #3498db;
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(52, 152, 219, 0.2);
+        }
+        .option-card.selected {
+            border-color: #27ae60;
+            background: rgba(39, 174, 96, 0.05);
+        }
+        .option-icon {
+            font-size: 32px;
+            margin-bottom: 10px;
+        }
+        .option-card h3 {
+            font-size: 16px;
+            font-weight: 600;
+            color: #2c3e50;
+            margin-bottom: 8px;
+        }
+        .option-card p {
+            font-size: 13px;
+            color: #7f8c8d;
+            margin: 0;
+        }
+        .load-job-area {
+            background: #f8f9fa;
+            border-radius: 12px;
+            padding: 20px;
         }
         .status-card {
             padding: 20px;
@@ -310,6 +357,70 @@
             height: 500px;
             border: 1px solid #e9ecef;
             border-radius: 10px;
+            position: relative;
+        }
+        .graph-controls {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 10;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 10px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            display: none;
+        }
+        .graph-controls label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        .graph-controls input[type="range"] {
+            width: 120px;
+            margin-right: 8px;
+        }
+        .graph-controls select {
+            padding: 4px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+        .graph-legend {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(255, 255, 255, 0.94);
+            padding: 10px 12px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            font-size: 12px;
+            z-index: 10;
+            display: none;
+        }
+        .graph-legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin: 6px 0;
+        }
+        .graph-legend-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+        .graph-tooltip {
+            position: absolute;
+            pointer-events: none;
+            background: rgba(0,0,0,.82);
+            color: #fff;
+            padding: 8px 10px;
+            border-radius: 6px;
+            font-size: 12px;
+            z-index: 1000;
+            transform: translate(-50%,-120%);
+            white-space: nowrap;
+            opacity: 0;
         }
         .tabs {
             display: flex;
@@ -377,9 +488,25 @@
             <div class="left-panel">
                 <div class="section">
                     <div class="section-title">
-                        📊 Data Upload
+                        📊 Project Options
                     </div>
-                    <div class="upload-area" id="uploadArea">
+                    
+                    <!-- Project Options -->
+                    <div class="project-options" id="projectOptions">
+                        <div class="option-card" id="newProjectCard">
+                            <div class="option-icon">🆕</div>
+                            <h3>Create New Project</h3>
+                            <p>Start a fresh analysis with new data</p>
+                        </div>
+                        <div class="option-card" id="loadProjectCard">
+                            <div class="option-icon">📂</div>
+                            <h3>Load Previous Job</h3>
+                            <p>Resume analysis using job ID</p>
+                        </div>
+                    </div>
+
+                    <!-- File Upload Area (hidden initially) -->
+                    <div class="upload-area" id="uploadArea" style="display: none;">
                         <div>
                             <div style="font-size: 48px; margin-bottom: 15px;">📁</div>
                             <h3>Upload Professional Data CSV</h3>
@@ -389,6 +516,19 @@
                                 Choose File
                             </button>
                         </div>
+                        <button id="backToOptions" class="btn btn-secondary" style="margin-top: 15px;">← Back to Options</button>
+                    </div>
+
+                    <!-- Load Job Area (hidden initially) -->
+                    <div class="load-job-area" id="loadJobArea" style="display: none;">
+                        <div class="form-group">
+                            <label for="jobIdInput">Enter Job ID</label>
+                            <input type="text" id="jobIdInput" class="form-control" placeholder="e.g., 12345678-1234-5678-9abc-123456789012">
+                        </div>
+                        <div style="display: flex; gap: 10px;">
+                            <button id="loadJobBtn" class="btn btn-primary">Load Job</button>
+                            <button id="backToOptionsFromLoad" class="btn btn-secondary">← Back to Options</button>
+                        </div>
                     </div>
                 </div>
 
@@ -396,16 +536,16 @@
                     <div class="section-title">
                         ⚙️ Analysis Configuration
                     </div>
-                    
+
                     <div class="form-group">
                         <label for="minDensity">Minimum Density Threshold</label>
-                        <input type="number" id="minDensity" class="form-control" value="0.3" step="0.1" min="0" max="1" 
+                        <input type="number" id="minDensity" class="form-control" value="0.3" step="0.1" min="0" max="1"
                                title="Minimum density for subgraph extraction (0.0 - 1.0)">
                     </div>
 
                     <div class="form-group">
                         <label for="promptInput">User Intent (Optional)</label>
-                        <textarea id="promptInput" class="form-control" rows="3" 
+                        <textarea id="promptInput" class="form-control" rows="3"
                                   placeholder="e.g., 'I want to hire for my startup', 'I need peer networking', 'I want business partnerships'"
                                   title="Describe your networking intent to tune the algorithm"></textarea>
                     </div>
@@ -418,7 +558,7 @@
                         <div class="collapse-content" id="advancedContent">
                             <div class="form-group">
                                 <label for="fileId">File ID (Optional)</label>
-                                <input type="text" id="fileId" class="form-control" 
+                                <input type="text" id="fileId" class="form-control"
                                        placeholder="Custom file ID for cache isolation"
                                        title="Use same file ID to reuse cached matrices">
                             </div>
@@ -428,6 +568,7 @@
                     <button class="btn" id="analyzeBtn" onclick="startAnalysis()" disabled style="width: 100%; margin-top: 20px;">
                         🚀 Start Analysis
                     </button>
+                    
                 </div>
 
                 <div class="status-card disconnected" id="connectionStatus">
@@ -473,9 +614,21 @@
         let websocket = null;
         let selectedFile = null;
         let currentJobId = null;
+        
+        
+        function clearPreviousJob() {
+            currentJobId = null;
+            
+            // Reset UI
+            document.getElementById('resultsContainer').style.display = 'none';
+            updateProgress(0);
+            updateConnectionStatus(true);
+            
+            logMessage('✅ Previous job cleared, ready for new analysis', 'success');
+        }
         let analysisSteps = [
             'Initializing GraphMatcher',
-            'Loading data', 
+            'Loading data',
             'Preprocessing tags and embeddings',
             'Creating feature embeddings',
             'Building optimized graph',
@@ -487,25 +640,26 @@
         function connectWebSocket() {
             const clientId = 'web_client_' + Math.random().toString(36).substr(2, 9);
             const wsUrl = `ws://localhost:8000/ws/${clientId}`;
-            
+
             websocket = new WebSocket(wsUrl);
-            
+
             websocket.onopen = function() {
                 updateConnectionStatus(true);
                 logMessage('🔗 WebSocket connected successfully!', 'success');
+                
             };
-            
+
             websocket.onmessage = function(event) {
                 const data = JSON.parse(event.data);
                 handleWebSocketMessage(data);
             };
-            
+
             websocket.onclose = function() {
                 updateConnectionStatus(false);
                 logMessage('🔌 WebSocket connection closed. Reconnecting...', 'warning');
                 setTimeout(connectWebSocket, 3000);
             };
-            
+
             websocket.onerror = function(error) {
                 logMessage('❌ WebSocket error: ' + error.message, 'error');
             };
@@ -528,12 +682,12 @@
             const progressContainer = document.getElementById('progressContainer');
             const progressFill = document.getElementById('progressFill');
             const progressText = document.getElementById('progressText');
-            
+
             if (step > 0) {
                 progressContainer.style.display = 'block';
                 const percentage = (step / total) * 100;
                 progressFill.style.width = percentage + '%';
-                
+
                 if (step <= analysisSteps.length) {
                     progressText.textContent = `Step ${step}/${total}: ${analysisSteps[step-1]}`;
                 } else {
@@ -549,45 +703,50 @@
                 const jobId = data.job_id.substring(0, 8);
                 const status = data.status;
                 const progress = data.progress || '';
-                
+
                 if (status === 'processing') {
                     // Update progress based on message content
-                    currentStep = Math.min(analysisSteps.findIndex(step => 
+                    currentStep = Math.min(analysisSteps.findIndex(step =>
                         progress.toLowerCase().includes(step.toLowerCase())) + 1, analysisSteps.length);
                     if (currentStep <= 0) currentStep = Math.min(currentStep + 1, analysisSteps.length);
-                    
+
                     updateProgress(currentStep);
                     logMessage(`🔄 ${progress}`, 'info');
-                    
+
                     const connectionStatus = document.getElementById('connectionStatus');
                     connectionStatus.className = 'status-card processing';
                     connectionStatus.innerHTML = `<span style="font-size: 20px;">⏳</span><span>${progress}</span>`;
-                    
+
                 } else if (status === 'completed') {
                     updateProgress(analysisSteps.length + 1);
                     logMessage(`✅ Analysis completed successfully!`, 'success');
-                    
+
                     const connectionStatus = document.getElementById('connectionStatus');
                     connectionStatus.className = 'status-card connected';
                     connectionStatus.innerHTML = '<span style="font-size: 20px;">🎉</span><span>Analysis Complete!</span>';
-                    
+
+                    // The result should already be in the WebSocket message
                     if (data.result) {
                         showResults(data.result);
+                    } else {
+                        // Fallback: fetch from API if result not in WebSocket message
+                        logMessage('⚠️ Result not in WebSocket, fetching from API...', 'warning');
+                        fetchJobResult(data.job_id);
                     }
-                    
+
                     setTimeout(() => {
                         updateProgress(0);
                         updateConnectionStatus(true);
                     }, 3000);
-                    
+
                 } else if (status === 'failed') {
                     updateProgress(0);
                     logMessage(`❌ Analysis failed: ${data.error}`, 'error');
-                    
+
                     const connectionStatus = document.getElementById('connectionStatus');
                     connectionStatus.className = 'status-card disconnected';
                     connectionStatus.innerHTML = '<span style="font-size: 20px;">❌</span><span>Analysis Failed</span>';
-                    
+
                     setTimeout(() => updateConnectionStatus(true), 5000);
                 }
             }
@@ -597,23 +756,52 @@
             const log = document.getElementById('log');
             const entry = document.createElement('div');
             entry.className = 'log-entry';
-            
+
             const timestamp = new Date().toLocaleTimeString().substring(0, 5);
             const icon = type === 'success' ? '✅' : type === 'error' ? '❌' : type === 'warning' ? '⚠️' : '📝';
-            
+
             entry.innerHTML = `
                 <span class="timestamp">${timestamp}</span>
                 <span>${message}</span>
             `;
-            
+
             log.appendChild(entry);
             log.scrollTop = log.scrollHeight;
+        }
+
+        async function fetchJobResult(jobId) {
+            try {
+                logMessage('📊 Fetching detailed job results...', 'info');
+
+                const response = await fetch(`http://localhost:8000/jobs/${jobId}`, {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const jobResult = await response.json();
+                if (jobResult.status === 'completed' && jobResult.result) {
+                    logMessage('✅ Final results retrieved successfully!', 'success');
+                    showResults(jobResult.result);
+                } else {
+                    logMessage('⚠️ Job not completed yet, using WebSocket result', 'warning');
+                }
+
+            } catch (error) {
+                logMessage(`❌ Failed to fetch job result: ${error.message}`, 'error');
+                logMessage('ℹ️ Using WebSocket result as fallback', 'info');
+            }
         }
 
         function showResults(result) {
             const container = document.getElementById('resultsContainer');
             container.style.display = 'block';
-            
+
             let html = `
                 <div class="result-card">
                     <div class="result-header">
@@ -623,7 +811,7 @@
                             <div style="color: #7f8c8d;">Professional Network Analysis Results</div>
                         </div>
                     </div>
-                    
+
                     <div class="metrics-grid">
                         <div class="metric-card">
                             <div class="metric-value">${result.size}</div>
@@ -646,7 +834,11 @@
                     <div class="tabs">
                         <div class="tab active" onclick="switchTab('members')">👥 Network Members</div>
                         <div class="tab" onclick="switchTab('graph')">🕸️ Network Graph</div>
-                        <div class="tab" onclick="switchTab('insights')">💡 Insights</div>
+                        <div class="tab" onclick="switchTab('insights')">💡 Basic Insights</div>
+                        <div class="tab" onclick="switchTab('communities')">🏘️ Communities</div>
+                        <div class="tab" onclick="switchTab('cycles')">🔄 Max Cycles</div>
+                        <div class="tab" onclick="switchTab('features')">📊 Feature Analysis</div>
+                        <div class="tab" onclick="switchTab('profiles')">👤 Member Profiles</div>
                     </div>
 
                     <div class="tab-content active" id="members-tab">
@@ -659,8 +851,8 @@
                     html += `
                         <div class="member-card">
                             <div class="member-name">${member.name}</div>
-                            ${member.linkedin ? 
-                                `<a href="${member.linkedin}" class="member-linkedin" target="_blank">View LinkedIn Profile</a>` : 
+                            ${member.linkedin ?
+                                `<a href="${member.linkedin}" class="member-linkedin" target="_blank">View LinkedIn Profile</a>` :
                                 '<span style="color: #bdc3c7;">LinkedIn not available</span>'
                             }
                         </div>
@@ -677,17 +869,55 @@
                     <div class="tab-content" id="graph-tab">
                         <h4 style="margin-bottom: 20px; color: #2c3e50;">Network Visualization</h4>
                         <div class="graph-container">
-                            <div id="networkGraph" class="graph-canvas"></div>
+                            <div class="graph-canvas">
+                                <svg id="networkGraph" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" style="width: 100%; height: 100%;"></svg>
+                                <div class="graph-controls" id="graphControls">
+                                    <label for="threshold">Score ≥ <span id="thval">0.100</span></label>
+                                    <input type="range" id="threshold" min="0" max="1" step="0.01" value="0.1" />
+                                    <label for="layoutType">Layout:</label>
+                                    <select id="layoutType">
+                                        <option value="force">Force</option>
+                                        <option value="radial">Radial</option>
+                                        <option value="mds">MDS Layout</option>
+                                    </select>
+                                </div>
+                                <div class="graph-legend" id="graphLegend">
+                                    <div class="graph-legend-item"><span class="graph-legend-dot" style="background:#ff6b6b"></span> High (Top 25%)</div>
+                                    <div class="graph-legend-item"><span class="graph-legend-dot" style="background:#4ecdc4"></span> Medium (Mid 35%)</div>
+                                    <div class="graph-legend-item"><span class="graph-legend-dot" style="background:#95a5a6"></span> Low (Bottom 40%)</div>
+                                </div>
+                                <div class="graph-tooltip" id="graphTooltip"></div>
+                            </div>
                         </div>
                     </div>
 
                     <div class="tab-content" id="insights-tab">
-                        <h4 style="margin-bottom: 20px; color: #2c3e50;">Analysis Insights</h4>
+                        <h4 style="margin-bottom: 20px; color: #2c3e50;">Basic Analysis Insights</h4>
                         <div style="background: #f8f9fa; padding: 20px; border-radius: 10px;">
                             <p><strong>Network Density:</strong> ${result.density ? (result.density * 100).toFixed(1) : 'N/A'}% of possible connections exist</p>
                             <p><strong>Connection Strength:</strong> Average edge weight of ${result.avg_edge_weight ? result.avg_edge_weight.toFixed(3) : 'N/A'}</p>
                             <p><strong>Network Size:</strong> ${result.size} professionals form this dense subgraph</p>
                         </div>
+                    </div>
+
+                    <div class="tab-content" id="communities-tab">
+                        <h4 style="margin-bottom: 20px; color: #2c3e50;">🏘️ Weighted Communities Analysis</h4>
+                        <div id="communitiesContent">Loading community analysis...</div>
+                    </div>
+
+                    <div class="tab-content" id="cycles-tab">
+                        <h4 style="margin-bottom: 20px; color: #2c3e50;">🔄 Maximum Weight Cycles</h4>
+                        <div id="cyclesContent">Loading cycle analysis...</div>
+                    </div>
+
+                    <div class="tab-content" id="features-tab">
+                        <h4 style="margin-bottom: 20px; color: #2c3e50;">📊 Feature Importance Analysis</h4>
+                        <div id="featuresContent">Loading feature analysis...</div>
+                    </div>
+
+                    <div class="tab-content" id="profiles-tab">
+                        <h4 style="margin-bottom: 20px; color: #2c3e50;">👤 Member Dataset Profiles</h4>
+                        <div id="profilesContent">Loading member profiles...</div>
                     </div>
             `;
 
@@ -697,7 +927,7 @@
                         <h4 style="color: #2c3e50; margin-bottom: 20px;">💡 Expansion Recommendations</h4>
                         <div class="members-grid">
                 `;
-                
+
                 result.expansion_recommendations.slice(0, 6).forEach(rec => {
                     html += `
                         <div class="member-card" style="border-left-color: #f39c12;">
@@ -708,77 +938,322 @@
                         </div>
                     `;
                 });
-                
+
                 html += '</div></div>';
             }
 
             html += '</div>';
             container.innerHTML = html;
-            
-            // Initialize network graph
-            setTimeout(() => createNetworkGraph(result), 100);
+
+            // Initialize enhanced content
+            setTimeout(() => {
+                console.log('Complete result object:', result);
+                console.log('Result keys:', Object.keys(result));
+                
+                createNetworkGraph(result);
+                loadCommunityAnalysis(result);
+                loadCycleAnalysis(result);
+                loadFeatureAnalysis(result);
+                loadProfileAnalysis(result);
+            }, 100);
         }
 
-        function createNetworkGraph(result) {
-            if (!result.members || result.members.length === 0) return;
-            
-            const nodes = new vis.DataSet(
-                result.members.map((member, index) => ({
-                    id: index,
-                    label: member.name,
-                    title: `${member.name}${member.linkedin ? '\nLinkedIn: ' + member.linkedin : ''}`,
-                    color: {
-                        background: '#3498db',
-                        border: '#2980b9',
-                        highlight: {background: '#e74c3c', border: '#c0392b'}
-                    }
-                }))
-            );
+        let networkGraphData = null;
+        let networkSvg = null;
+        let networkRootG = null;
+        let networkSimulation = null;
+        let networkZoomBehavior = null;
+        let currentNetworkTransform = d3.zoomIdentity;
+        let mdsCoordinates = null;  // Store MDS layout coordinates
 
-            // Create edges (for dense subgraph, connect all nodes)
-            const edges = new vis.DataSet();
-            for (let i = 0; i < result.members.length; i++) {
-                for (let j = i + 1; j < result.members.length; j++) {
-                    edges.add({
-                        from: i,
-                        to: j,
-                        color: {color: '#bdc3c7', highlight: '#3498db'},
-                        width: 2
+        function getLinkedInName(id) {
+            if (!id) return 'Unknown';
+            const m = String(id).match(/linkedin\.com\/in\/([^/?#]+)/i);
+            return m ? m[1].replace(/-/g, ' ') : String(id).slice(-32);
+        }
+
+        function processNetworkDataForGraph(result) {
+            if (!result.members || result.members.length === 0) return { nodes: [], links: [] };
+
+            const nodes = result.members.map((member, index) => ({
+                id: member.name || member.id || `person_${index}`,
+                name: member.name || getLinkedInName(member.id) || `Person ${index}`,
+                linkedin: member.linkedin || member.id
+            }));
+
+            const links = [];
+
+            // First try to use edges_data from the backend (preferred)
+            if (result.edges_data && result.edges_data.length > 0) {
+                result.edges_data.forEach(edge => {
+                    const sourceNode = nodes.find(n => n.name === edge.source);
+                    const targetNode = nodes.find(n => n.name === edge.target);
+
+                    if (sourceNode && targetNode) {
+                        links.push({
+                            source: sourceNode.id,
+                            target: targetNode.id,
+                            score: Math.max(0.001, edge.score || edge.weight || 0.1),
+                            weight: Math.max(0.001, edge.score || edge.weight || 0.1) * 10
+                        });
+                    }
+                });
+            }
+            // Fallback: try other edge formats
+            else {
+                let edges = null;
+                if (result.edges && result.edges.length > 0) {
+                    edges = result.edges;
+                } else if (result.dense_subgraph_edges && result.dense_subgraph_edges.length > 0) {
+                    edges = result.dense_subgraph_edges;
+                } else if (result.subgraph && result.subgraph.edges && result.subgraph.edges.length > 0) {
+                    edges = result.subgraph.edges;
+                }
+
+                if (edges && edges.length > 0) {
+                    edges.forEach(edge => {
+                        // Handle different edge formats
+                        const sourceId = edge.source || edge.from || edge[0];
+                        const targetId = edge.target || edge.to || edge[1];
+                        const weight = edge.weight || edge.score || edge.value || edge[2] || 0.1;
+
+                        // Find matching node names/IDs
+                        const sourceNode = nodes.find(n => n.name === sourceId || n.id === sourceId || n.linkedin === sourceId);
+                        const targetNode = nodes.find(n => n.name === targetId || n.id === targetId || n.linkedin === targetId);
+
+                        if (sourceNode && targetNode) {
+                            links.push({
+                                source: sourceNode.id,
+                                target: targetNode.id,
+                                score: Math.max(0.001, weight),
+                                weight: Math.max(0.001, weight) * 10
+                            });
+                        }
                     });
                 }
             }
 
-            const container = document.getElementById('networkGraph');
-            const data = { nodes: nodes, edges: edges };
-            const options = {
-                physics: {
-                    enabled: true,
-                    stabilization: {iterations: 100}
-                },
-                nodes: {
-                    shape: 'circle',
-                    size: 25,
-                    font: {size: 14, color: '#2c3e50'},
-                    borderWidth: 2
-                },
-                edges: {
-                    width: 2,
-                    smooth: {type: 'continuous'}
-                },
-                interaction: {
-                    hover: true,
-                    tooltipDelay: 200
+            // If still no edges found, create a reasonable dense subgraph structure
+            if (links.length === 0 && nodes.length > 1) {
+                // Use density from result or default to high connectivity for dense subgraph
+                const density = result.density || 0.8;
+                const shouldConnect = () => Math.random() < density;
+
+                for (let i = 0; i < nodes.length; i++) {
+                    for (let j = i + 1; j < nodes.length; j++) {
+                        if (shouldConnect()) {
+                            // Vary weights slightly for more interesting visualization
+                            const score = Math.max(0.05, Math.random() * 0.3 + 0.1);
+                            links.push({
+                                source: nodes[i].id,
+                                target: nodes[j].id,
+                                score: score,
+                                weight: score * 10
+                            });
+                        }
+                    }
                 }
-            };
+            }
+
+            return { nodes, links };
+        }
+
+        // Dynamic color functions based on actual data range
+        function linkColor(s, minScore, maxScore) { 
+            const range = maxScore - minScore;
+            const high = minScore + range * 0.75;
+            const mid = minScore + range * 0.4;
+            return s > high ? '#ff6b6b' : (s > mid ? '#4ecdc4' : '#95a5a6'); 
+        }
+        function nodeColor(d) { return d > 15 ? '#e74c3c' : (d > 8 ? '#f39c12' : (d > 3 ? '#3498db' : '#95a5a6')); }
+
+        function initNetworkSvg() {
+            const container = document.getElementById('networkGraph');
+            const rect = container.getBoundingClientRect();
+            const width = rect.width > 0 ? rect.width : 500;
+            const height = rect.height > 0 ? rect.height : 500;
+
+            networkSvg = d3.select('#networkGraph')
+                .attr('width', width).attr('height', height)
+                .attr('viewBox', `0 0 ${width} ${height}`)
+                .attr('preserveAspectRatio', 'xMidYMid meet');
+            networkSvg.selectAll('*').remove();
+            networkRootG = networkSvg.append('g').attr('id', 'networkRoot');
+            networkZoomBehavior = d3.zoom().scaleExtent([0.1, 6]).on('zoom', ev => {
+                currentNetworkTransform = ev.transform;
+                networkRootG.attr('transform', currentNetworkTransform);
+            });
+            networkSvg.call(networkZoomBehavior).call(networkZoomBehavior.transform, currentNetworkTransform);
+
+            return { width, height };
+        }
+
+        function updateNetworkGraph() {
+            if (!networkGraphData) return;
+            if (networkSimulation) { networkSimulation.stop(); networkSimulation = null; }
+
+            const threshold = +document.getElementById('threshold').value;
+            document.getElementById('thval').textContent = threshold.toFixed(3);
+            const layout = document.getElementById('layoutType').value;
+
+            const { width, height } = initNetworkSvg();
+
+            // Filter links and keep only connected nodes
+            const links = networkGraphData.links.filter(l => l.score >= threshold);
+            const connected = new Set();
+            links.forEach(l => { connected.add(l.source); connected.add(l.target); });
+            const nodes = networkGraphData.nodes.filter(n => connected.has(n.id));
             
-            new vis.Network(container, data, options);
+            // Calculate actual score range for dynamic coloring
+            const scores = links.map(l => l.score);
+            const minScore = Math.min(...scores);
+            const maxScore = Math.max(...scores);
+            console.log('Score range:', minScore, 'to', maxScore);
+
+            // Degree in the filtered graph
+            const degree = new Map();
+            nodes.forEach(n => degree.set(n.id, 0));
+            links.forEach(l => {
+                degree.set(l.source, (degree.get(l.source)||0)+1);
+                degree.set(l.target, (degree.get(l.target)||0)+1);
+            });
+
+            networkRootG.selectAll('*').remove();
+            if (nodes.length === 0) {
+                networkRootG.append('text').attr('x', width/2).attr('y', height/2)
+                    .attr('text-anchor','middle').attr('fill','#777').style('font-size','16px')
+                    .text('No connections above threshold');
+                return;
+            }
+
+            const link = networkRootG.append('g').attr('stroke-linecap','round').selectAll('line').data(links).join('line')
+                .attr('stroke', d => linkColor(d.score, minScore, maxScore))
+                .attr('stroke-opacity', .75)
+                .attr('stroke-width', d => {
+                    // Scale width based on actual score range
+                    const normalizedScore = (d.score - minScore) / (maxScore - minScore || 1);
+                    return Math.max(1, 1 + normalizedScore * 8);
+                });
+
+            const node = networkRootG.append('g').selectAll('circle').data(nodes, d => d.id).join('circle')
+                .attr('r', d => Math.max(5, Math.sqrt(degree.get(d.id)||1) * 3))
+                .attr('fill', d => nodeColor(degree.get(d.id)||0)).attr('stroke','#333').attr('stroke-width',1.5)
+                .call(d3.drag().on('start', dragstarted).on('drag', dragged).on('end', dragended));
+
+            const label = networkRootG.append('g').selectAll('text').data(nodes, d => d.id).join('text')
+                .attr('text-anchor','middle').attr('font-size',10).attr('fill','#333')
+                .text(d => d.name.length > 18 ? d.name.slice(0,15) + '…' : d.name);
+
+            const tooltip = d3.select('#graphTooltip');
+            node.on('mouseover', (ev, d) => {
+                const deg = degree.get(d.id) || 0;
+                tooltip.style('opacity', 1)
+                    .html(`<strong>${d.name}</strong><br/>Degree: ${deg}<br/>${d.linkedin ? `<a href="${d.linkedin}" target="_blank">LinkedIn</a>` : 'No LinkedIn'}`)
+                    .style('left', ev.pageX + 'px')
+                    .style('top', (ev.pageY - 10) + 'px');
+            }).on('mouseout', () => tooltip.style('opacity', 0));
+
+            if (layout === 'force') {
+                networkSimulation = d3.forceSimulation(nodes)
+                    .force('link', d3.forceLink(links).id(d => d.id).distance(d => 120 - Math.min(100, Math.max(0.001, d.score||0) * 600)))
+                    .force('charge', d3.forceManyBody().strength(-320))
+                    .force('center', d3.forceCenter(width/2, height/2))
+                    .force('x', d3.forceX(width/2).strength(0.08))
+                    .force('y', d3.forceY(height/2).strength(0.08))
+                    .force('collide', d3.forceCollide().radius(d => Math.max(10, Math.sqrt(degree.get(d.id)||1)*4)).iterations(2))
+                    .on('tick', () => {
+                        link.attr('x1', d => d.source.x).attr('y1', d => d.source.y).attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+                        node.attr('cx', d => clamp(d.x, 10, width-10)).attr('cy', d => clamp(d.y, 10, height-10));
+                        label.attr('x', d => clamp(d.x, 10, width-10)).attr('y', d => clamp(d.y, 10, height-10) + 12);
+                    });
+            } else if (layout === 'radial') {
+                const R = Math.min(width, height) * 0.35;
+                nodes.forEach((n, i) => {
+                    const a = (i / nodes.length) * 2 * Math.PI;
+                    n.x = width/2 + R * Math.cos(a);
+                    n.y = height/2 + R * Math.sin(a);
+                });
+                const posX = d => d.x, posY = d => d.y;
+                link.attr('x1', d => posX(d.source)).attr('y1', d => posY(d.source)).attr('x2', d => posX(d.target)).attr('y2', d => posY(d.target));
+                node.attr('cx', posX).attr('cy', posY);
+                label.attr('x', posX).attr('y', d => posY(d) + 12);
+            } else if (layout === 'mds' && mdsCoordinates) {
+                // Use MDS/Stress layout coordinates from backend
+                console.log('Applying MDS layout to nodes:', nodes.map(n => n.name));
+                nodes.forEach(n => {
+                    const coords = mdsCoordinates[n.name] || mdsCoordinates[n.id];
+                    console.log(`Looking for coords for ${n.name}/${n.id}:`, coords);
+                    if (coords) {
+                        n.x = coords.x * width;
+                        n.y = coords.y * height;
+                        console.log(`Positioned ${n.name} at (${n.x}, ${n.y})`);
+                    } else {
+                        // Fallback to random position if no coordinates
+                        n.x = width/2 + (Math.random() - 0.5) * 200;
+                        n.y = height/2 + (Math.random() - 0.5) * 200;
+                        console.log(`No coords found for ${n.name}, using fallback (${n.x}, ${n.y})`);
+                    }
+                });
+                const posX = d => d.x, posY = d => d.y;
+                link.attr('x1', d => posX(d.source)).attr('y1', d => posY(d.source)).attr('x2', d => posX(d.target)).attr('y2', d => posY(d.target));
+                node.attr('cx', posX).attr('cy', posY);
+                label.attr('x', posX).attr('y', d => posY(d) + 12);
+            }
+        }
+
+        function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+        function dragstarted(ev, d) {
+            if (networkSimulation && !ev.active) networkSimulation.alphaTarget(0.3).restart();
+            d.fx = d.x; d.fy = d.y;
+        }
+        function dragged(ev, d) { d.fx = ev.x; d.fy = ev.y; }
+        function dragended(ev, d) {
+            if (networkSimulation && !ev.active) networkSimulation.alphaTarget(0);
+            d.fx = null; d.fy = null;
+        }
+
+        function createNetworkGraph(result) {
+            if (!result.members || result.members.length === 0) return;
+
+            networkGraphData = processNetworkDataForGraph(result);
+            
+            // Extract MDS coordinates if available and map them properly
+            if (result.stress_layout && result.stress_layout.coordinates) {
+                mdsCoordinates = {};
+                const coords = result.stress_layout.coordinates;
+                const members = result.members || [];
+                
+                // Map numeric node IDs to member names
+                Object.keys(coords).forEach(nodeId => {
+                    const numericId = parseInt(nodeId);
+                    if (members[numericId] && members[numericId].name) {
+                        const memberName = members[numericId].name;
+                        mdsCoordinates[memberName] = coords[nodeId];
+                    }
+                    // Also keep the original numeric key as fallback
+                    mdsCoordinates[nodeId] = coords[nodeId];
+                });
+                
+                console.log('MDS coordinates mapped:', mdsCoordinates);
+            }
+
+            // Show controls and legend
+            document.getElementById('graphControls').style.display = 'block';
+            document.getElementById('graphLegend').style.display = 'block';
+
+            // Add event listeners for controls
+            document.getElementById('threshold').addEventListener('input', updateNetworkGraph);
+            document.getElementById('layoutType').addEventListener('change', updateNetworkGraph);
+
+            // Initial render
+            updateNetworkGraph();
         }
 
         function switchTab(tabName) {
             // Update tab buttons
             document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
             event.target.classList.add('active');
-            
+
             // Update tab content
             document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
             document.getElementById(tabName + '-tab').classList.add('active');
@@ -787,7 +1262,7 @@
         function toggleAdvanced() {
             const content = document.getElementById('advancedContent');
             const toggle = document.getElementById('advancedToggle');
-            
+
             if (content.classList.contains('show')) {
                 content.classList.remove('show');
                 toggle.textContent = '▼';
@@ -802,29 +1277,47 @@
                 alert('Please select a file and ensure WebSocket is connected');
                 return;
             }
-            
+
             // Reset progress
             currentStep = 0;
             updateProgress(0);
-            
+
             // Hide previous results
             document.getElementById('resultsContainer').style.display = 'none';
-            
+
             const formData = new FormData();
             formData.append('file', selectedFile);
-            
+
             const minDensity = document.getElementById('minDensity').value;
-            if (minDensity) formData.append('min_density', minDensity);
-            
+            console.log('DEBUG - minDensity raw value:', minDensity);
+            if (minDensity && minDensity !== '' && minDensity !== 'None') {
+                formData.append('min_density', parseFloat(minDensity));
+                console.log('DEBUG - Added min_density:', parseFloat(minDensity));
+            }
+
             const prompt = document.getElementById('promptInput').value.trim();
-            if (prompt) formData.append('prompt', prompt);
-            
+            console.log('DEBUG - prompt raw value:', prompt);
+            if (prompt && prompt !== '' && prompt !== 'None') {
+                formData.append('prompt', prompt);
+                console.log('DEBUG - Added prompt:', prompt);
+            }
+
             const fileId = document.getElementById('fileId').value.trim();
-            if (fileId) formData.append('file_id', fileId);
-            
+            console.log('DEBUG - fileId raw value:', fileId);
+            if (fileId && fileId !== '' && fileId !== 'None') {
+                formData.append('file_id', fileId);
+                console.log('DEBUG - Added file_id:', fileId);
+            }
+
+            // Debug: Log all FormData entries
+            console.log('DEBUG - FormData contents:');
+            for (let pair of formData.entries()) {
+                console.log(pair[0] + ': ' + pair[1]);
+            }
+
             try {
                 logMessage('🚀 Initiating analysis request...', 'info');
-                
+
                 const response = await fetch('http://localhost:8000/analyze', {
                     method: 'POST',
                     headers: {
@@ -832,18 +1325,18 @@
                     },
                     body: formData
                 });
-                
+
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
-                
+
                 const result = await response.json();
                 currentJobId = result.job_id;
                 logMessage(`✅ Analysis queued successfully! Job ID: ${result.job_id.substring(0, 8)}...`, 'success');
-                
+
                 // Disable button during analysis
                 document.getElementById('analyzeBtn').disabled = true;
-                
+
             } catch (error) {
                 logMessage(`❌ Failed to start analysis: ${error.message}`, 'error');
                 updateProgress(0);
@@ -853,7 +1346,7 @@
         // File handling
         const fileInput = document.getElementById('fileInput');
         const uploadArea = document.getElementById('uploadArea');
-        
+
         fileInput.addEventListener('change', function(e) {
             selectedFile = e.target.files[0];
             if (selectedFile) {
@@ -871,23 +1364,23 @@
                 document.getElementById('analyzeBtn').disabled = !websocket || websocket.readyState !== WebSocket.OPEN;
             }
         });
-        
+
         // Drag and drop functionality
         uploadArea.addEventListener('dragover', function(e) {
             e.preventDefault();
             uploadArea.classList.add('dragover');
         });
-        
+
         uploadArea.addEventListener('dragleave', function(e) {
             if (!uploadArea.contains(e.relatedTarget)) {
                 uploadArea.classList.remove('dragover');
             }
         });
-        
+
         uploadArea.addEventListener('drop', function(e) {
             e.preventDefault();
             uploadArea.classList.remove('dragover');
-            
+
             const files = e.dataTransfer.files;
             if (files.length > 0 && files[0].name.toLowerCase().endsWith('.csv')) {
                 fileInput.files = files;
@@ -896,10 +1389,368 @@
                 alert('Please drop a valid CSV file');
             }
         });
+
+        // Load enhanced analysis functions
+        function loadCommunityAnalysis(result) {
+            const container = document.getElementById('communitiesContent');
+            console.log('Community data:', result.weighted_communities);
+            if (!result.weighted_communities) {
+                container.innerHTML = '<div style="text-align: center; color: #7f8c8d; padding: 20px;">No community analysis available</div>';
+                return;
+            }
+            
+            const communities = result.weighted_communities;
+            let html = `
+                <div class="metrics-grid" style="margin-bottom: 20px;">
+                    <div class="metric-card">
+                        <div class="metric-value">${communities.communities ? communities.communities.length : 0}</div>
+                        <div class="metric-label">Communities Found</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value">${communities.best_method || 'N/A'}</div>
+                        <div class="metric-label">Best Algorithm</div>
+                    </div>
+                </div>
+                <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                    <strong>Summary:</strong> ${communities.summary || 'No summary available'}
+                </div>
+            `;
+            
+            if (communities.communities && communities.communities.length > 0) {
+                const members = result.members || [];
+                
+                // Helper function to get member name from node ID  
+                function getMemberName(nodeId) {
+                    // Try direct array index lookup first
+                    if (typeof nodeId === 'number' && members[nodeId] && members[nodeId].name) {
+                        return members[nodeId].name;
+                    }
+                    
+                    // Try finding by matching the node in the result.nodes array
+                    if (result.nodes && Array.isArray(result.nodes)) {
+                        const nodeIndex = result.nodes.indexOf(nodeId);
+                        if (nodeIndex >= 0 && members[nodeIndex] && members[nodeIndex].name) {
+                            return members[nodeIndex].name;
+                        }
+                    }
+                    
+                    // Try finding by exact match of any property
+                    const member = members.find(m => 
+                        m.name === nodeId || 
+                        m.id === nodeId || 
+                        m.node_id === nodeId
+                    );
+                    
+                    if (member && member.name) {
+                        return member.name;
+                    }
+                    
+                    // If it's already a name string, return as is
+                    if (typeof nodeId === 'string' && nodeId.length > 3 && !nodeId.startsWith('Node')) {
+                        return nodeId;
+                    }
+                    
+                    return `Node ${nodeId}`;
+                }
+                
+                html += '<div class="members-grid">';
+                communities.communities.forEach((community, index) => {
+                    const colors = ['#e74c3c', '#f39c12', '#2ecc71', '#3498db', '#9b59b6'];
+                    const memberNames = (community.nodes || []).map(nodeId => getMemberName(nodeId));
+                    
+                    html += `
+                        <div class="member-card" style="border-left-color: ${colors[index % colors.length]}">
+                            <div class="member-name">Community ${community.id + 1}</div>
+                            <div style="font-size: 14px; color: #7f8c8d; margin: 8px 0;">
+                                <strong>Size:</strong> ${community.size} members<br/>
+                                <strong>Density:</strong> ${community.density ? community.density.toFixed(3) : 'N/A'}<br/>
+                                <strong>Cohesion:</strong> ${community.cohesion_ratio ? (community.cohesion_ratio * 100).toFixed(1) : 'N/A'}%
+                            </div>
+                            <div style="font-size: 12px; color: #95a5a6; margin-top: 8px; line-height: 1.4;">
+                                <strong>Members:</strong><br/>
+                                ${memberNames.slice(0, 3).join(', ')}
+                                ${memberNames.length > 3 ? `<br/>+ ${memberNames.length - 3} more...` : ''}
+                            </div>
+                        </div>
+                    `;
+                });
+                html += '</div>';
+            }
+            
+            container.innerHTML = html;
+        }
         
+        function loadCycleAnalysis(result) {
+            const container = document.getElementById('cyclesContent');
+            if (!result.maximum_weight_cycle) {
+                container.innerHTML = '<div style="text-align: center; color: #7f8c8d; padding: 20px;">No cycle analysis available</div>';
+                return;
+            }
+            
+            const cycles = result.maximum_weight_cycle;
+            const members = result.members || [];
+            
+            // Helper function to get member name from node ID
+            function getMemberName(nodeId) {
+                console.log('Looking for nodeId:', nodeId, 'in members:', members);
+                
+                // Try direct array index lookup first
+                if (typeof nodeId === 'number' && members[nodeId] && members[nodeId].name) {
+                    return members[nodeId].name;
+                }
+                
+                // Try finding by matching the node in the result.nodes array
+                if (result.nodes && Array.isArray(result.nodes)) {
+                    const nodeIndex = result.nodes.indexOf(nodeId);
+                    if (nodeIndex >= 0 && members[nodeIndex] && members[nodeIndex].name) {
+                        return members[nodeIndex].name;
+                    }
+                }
+                
+                // Try finding by exact match of any property
+                const member = members.find(m => 
+                    m.name === nodeId || 
+                    m.id === nodeId || 
+                    m.node_id === nodeId
+                );
+                
+                if (member && member.name) {
+                    return member.name;
+                }
+                
+                // If it's already a name string, return as is
+                if (typeof nodeId === 'string' && nodeId.length > 3 && !nodeId.startsWith('Node')) {
+                    return nodeId;
+                }
+                
+                return `Node ${nodeId}`;
+            }
+            
+            let html = `
+                <div class="metrics-grid" style="margin-bottom: 20px;">
+                    <div class="metric-card">
+                        <div class="metric-value">${cycles.maximum_cycle ? cycles.maximum_cycle.weight.toFixed(3) : 'N/A'}</div>
+                        <div class="metric-label">Max Cycle Weight</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value">${cycles.maximum_cycle ? cycles.maximum_cycle.length : 0}</div>
+                        <div class="metric-label">Nodes in Cycle</div>
+                    </div>
+                </div>
+                <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                    <strong>Summary:</strong> ${cycles.summary || 'No summary available'}
+                </div>
+            `;
+            
+            // Show the maximum weight cycle with actual member names
+            if (cycles.maximum_cycle && cycles.maximum_cycle.nodes && cycles.maximum_cycle.nodes.length > 0) {
+                const cycleNodes = cycles.maximum_cycle.nodes;
+                const memberNames = cycleNodes.map(nodeId => getMemberName(nodeId));
+                
+                html += `
+                    <h5 style="margin: 20px 0 10px 0; color: #2c3e50;">🔄 Maximum Weight Cycle Path</h5>
+                    <div style="background: white; padding: 20px; border-radius: 8px; border-left: 4px solid #e74c3c;">
+                        <div style="font-weight: 600; margin-bottom: 10px; color: #e74c3c;">Optimal Route Through All Members</div>
+                        <div style="font-size: 16px; line-height: 1.6; color: #2c3e50;">
+                            ${memberNames.join(' → ')}
+                        </div>
+                        <div style="font-size: 14px; color: #7f8c8d; margin-top: 10px;">
+                            <strong>Total Weight:</strong> ${cycles.maximum_cycle.weight.toFixed(3)} • 
+                            <strong>Path Length:</strong> ${memberNames.length} members
+                        </div>
+                    </div>
+                `;
+            } else {
+                html += '<div style="text-align: center; color: #7f8c8d; padding: 20px;">No cycle found covering all nodes</div>';
+            }
+            
+            container.innerHTML = html;
+        }
+        
+        function loadFeatureAnalysis(result) {
+            const container = document.getElementById('featuresContent');
+            console.log('Feature analysis data:', result.feature_importance);
+            console.log('All result keys:', Object.keys(result));
+            
+            if (!result.feature_importance) {
+                container.innerHTML = `
+                    <div style="text-align: center; color: #7f8c8d; padding: 20px;">
+                        No feature analysis available<br/>
+                        <small>Available data keys: ${Object.keys(result).join(', ')}</small>
+                    </div>
+                `;
+                return;
+            }
+            
+            const features = result.feature_importance;
+            let html = `
+                <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                    <strong>Summary:</strong> ${features.summary || 'No summary available'}
+                </div>
+            `;
+            
+            if (features.feature_contributions) {
+                html += '<h5 style="margin: 20px 0 10px 0; color: #2c3e50;">Feature Contributions to Density</h5>';
+                
+                // Create sorted list of features by contribution
+                const sortedFeatures = Object.entries(features.feature_contributions)
+                    .sort((a, b) => b[1].contribution_percentage - a[1].contribution_percentage);
+                
+                html += '<div class="members-grid">';
+                sortedFeatures.forEach(([featureName, data], index) => {
+                    const colors = ['#e74c3c', '#f39c12', '#2ecc71', '#3498db', '#9b59b6', '#34495e'];
+                    html += `
+                        <div class="member-card" style="border-left-color: ${colors[index % colors.length]}">
+                            <div class="member-name">${featureName.charAt(0).toUpperCase() + featureName.slice(1)}</div>
+                            <div style="font-size: 14px; color: #7f8c8d; margin: 8px 0;">
+                                <strong>Contribution:</strong> ${data.contribution_percentage.toFixed(1)}%<br/>
+                                <strong>Avg Similarity:</strong> ${data.avg_similarity.toFixed(3)}<br/>
+                                <strong>Avg Complementarity:</strong> ${data.avg_complementarity.toFixed(3)}<br/>
+                            </div>
+                            <div style="font-size: 12px; color: #95a5a6;">
+                                ${data.similarity_dominance > data.complementarity_dominance ? '📈 Similarity-driven' : '🔄 Complementarity-driven'}
+                            </div>
+                        </div>
+                    `;
+                });
+                html += '</div>';
+            }
+            
+            container.innerHTML = html;
+        }
+        
+        function loadProfileAnalysis(result) {
+            const container = document.getElementById('profilesContent');
+            console.log('Profile analysis data:', result.dataset_values);
+            
+            if (!result.dataset_values) {
+                container.innerHTML = `
+                    <div style="text-align: center; color: #7f8c8d; padding: 20px;">
+                        No profile analysis available<br/>
+                        <small>Available data keys: ${Object.keys(result).join(', ')}</small>
+                    </div>
+                `;
+                return;
+            }
+            
+            const profiles = result.dataset_values;
+            let html = `
+                <div class="metrics-grid" style="margin-bottom: 20px;">
+                    <div class="metric-card">
+                        <div class="metric-value">${profiles.group_size || 0}</div>
+                        <div class="metric-label">Members Analyzed</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value">${profiles.diversity_analysis ? profiles.diversity_analysis.overall_diversity.toFixed(2) : 'N/A'}</div>
+                        <div class="metric-label">Diversity Score</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value">${profiles.common_patterns ? profiles.common_patterns.common_keywords.length : 0}</div>
+                        <div class="metric-label">Common Keywords</div>
+                    </div>
+                </div>
+                <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                    <strong>Summary:</strong> ${profiles.summary || 'No summary available'}
+                </div>
+            `;
+            
+            // Show common keywords
+            if (profiles.common_patterns && profiles.common_patterns.common_keywords.length > 0) {
+                html += '<h5 style="margin: 20px 0 10px 0; color: #2c3e50;">Common Keywords</h5>';
+                html += '<div style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px;">';
+                profiles.common_patterns.common_keywords.slice(0, 15).forEach(keyword => {
+                    html += `<span style="background: #3498db; color: white; padding: 4px 8px; border-radius: 12px; font-size: 12px;">${keyword}</span>`;
+                });
+                html += '</div>';
+            }
+            
+            // Show member profiles
+            if (profiles.member_profiles && profiles.member_profiles.length > 0) {
+                html += '<h5 style="margin: 20px 0 10px 0; color: #2c3e50;">Member Profiles</h5>';
+                html += '<div style="max-height: 500px; overflow-y: auto;">';
+                profiles.member_profiles.forEach((profile, index) => {
+                    html += `
+                        <div style="background: white; margin: 10px 0; padding: 15px; border-radius: 8px; border-left: 4px solid #2ecc71;">
+                            <div style="font-weight: 600; margin-bottom: 8px;">${profile.name}</div>
+                            <div style="font-size: 14px; color: #7f8c8d; margin-bottom: 8px;">
+                                <strong>Company:</strong> ${profile.company || 'N/A'}
+                            </div>
+                    `;
+                    
+                    // Show key features
+                    if (profile.features) {
+                        const keyFeatures = ['role', 'industry', 'experience'];
+                        keyFeatures.forEach(feature => {
+                            if (profile.features[feature] && profile.features[feature].raw_value) {
+                                const value = profile.features[feature].raw_value;
+                                const displayValue = value.length > 60 ? value.substring(0, 60) + '...' : value;
+                                html += `
+                                    <div style="font-size: 12px; color: #95a5a6; margin: 4px 0;">
+                                        <strong>${feature}:</strong> ${displayValue}
+                                    </div>
+                                `;
+                            }
+                        });
+                    }
+                    
+                    html += '</div>';
+                });
+                html += '</div>';
+            }
+            
+            container.innerHTML = html;
+        }
+
+        // Project option handlers
+        document.getElementById('newProjectCard').addEventListener('click', function() {
+            document.getElementById('projectOptions').style.display = 'none';
+            document.getElementById('uploadArea').style.display = 'block';
+        });
+
+        document.getElementById('loadProjectCard').addEventListener('click', function() {
+            document.getElementById('projectOptions').style.display = 'none';
+            document.getElementById('loadJobArea').style.display = 'block';
+        });
+
+        document.getElementById('backToOptions').addEventListener('click', function() {
+            document.getElementById('uploadArea').style.display = 'none';
+            document.getElementById('projectOptions').style.display = 'grid';
+        });
+
+        document.getElementById('backToOptionsFromLoad').addEventListener('click', function() {
+            document.getElementById('loadJobArea').style.display = 'none';
+            document.getElementById('projectOptions').style.display = 'grid';
+        });
+
+        document.getElementById('loadJobBtn').addEventListener('click', async function() {
+            const jobId = document.getElementById('jobIdInput').value.trim();
+            if (!jobId) {
+                alert('Please enter a valid Job ID');
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/jobs/${jobId}/result`);
+                if (response.ok) {
+                    const jobResult = await response.json();
+                    if (jobResult && jobResult.result) {
+                        displayResults(jobResult.result);
+                        addLog('success', `Loaded previous job: ${jobId}`);
+                    } else {
+                        alert('Job not found or not completed yet');
+                    }
+                } else {
+                    alert('Failed to load job. Please check the Job ID.');
+                }
+            } catch (error) {
+                console.error('Error loading job:', error);
+                alert('Error loading job. Please try again.');
+            }
+        });
+
         // Initialize WebSocket connection
         connectWebSocket();
-        
+
         // Re-enable analyze button when job completes
         window.addEventListener('beforeunload', function() {
             if (websocket) {

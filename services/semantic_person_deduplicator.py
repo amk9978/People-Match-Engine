@@ -1,7 +1,7 @@
-#!/usr/bin/env python3
 
 import asyncio
 import json
+import logging
 from typing import Dict, List
 
 import numpy as np
@@ -15,6 +15,8 @@ from services.redis_cache import RedisEmbeddingCache
 from services.tag_extractor import tag_extractor
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 
 class SemanticPersonDeduplicator:
@@ -55,7 +57,7 @@ Return ONLY the selected tag, nothing else."""
             response = await embedding_service.openai_client.chat.completions.create(
                 model="gpt-4",
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.1,
+                temperature=0,
                 max_tokens=50,
             )
 
@@ -68,7 +70,7 @@ Return ONLY the selected tag, nothing else."""
                 return tag_cluster[0]
 
         except Exception as e:
-            print(f"Error selecting umbrella tag: {e}")
+            logger.info(f"Error selecting umbrella tag: {e}")
             return tag_cluster[0]
 
     async def deduplicate_person_tags_semantic(
@@ -116,7 +118,7 @@ Return ONLY the selected tag, nothing else."""
     async def process_dataset_semantic(
         self, csv_path: str, similarity_threshold: float = 0.80
     ) -> Dict[str, Dict]:
-        print(
+        logger.info(
             f"Starting dataset-wide semantic deduplication (threshold: {similarity_threshold})..."
         )
 
@@ -134,7 +136,7 @@ Return ONLY the selected tag, nothing else."""
         results = {}
 
         for category, column_name in feature_columns.items():
-            print(f"\n🔍 Processing {category} tags...")
+            logger.info(f"\n🔍 Processing {category} tags...")
 
             # STEP 1: Extract all unique tags from entire dataset
             all_unique_tags = set()
@@ -144,7 +146,7 @@ Return ONLY the selected tag, nothing else."""
                     all_unique_tags.update(raw_tags)
 
             unique_tags_list = list(all_unique_tags)
-            print(f"  Found {len(unique_tags_list)} unique tags across dataset")
+            logger.info(f"  Found {len(unique_tags_list)} unique tags across dataset")
 
             # STEP 2: Create global tag mapping (tag -> umbrella_tag)
             tag_mapping = await self.create_global_tag_mapping(
@@ -152,16 +154,18 @@ Return ONLY the selected tag, nothing else."""
             )
 
             mapped_count = len([k for k, v in tag_mapping.items() if k != v])
-            print(f"  Created mappings for {mapped_count} tags")
+            logger.info(f"  Created mappings for {mapped_count} tags")
 
             # Debug: Show sample mappings
             sample_mappings = {k: v for k, v in tag_mapping.items() if k != v}
             if sample_mappings:
-                print("  Sample mappings:")
+                logger.info("  Sample mappings:")
                 for orig, mapped in list(sample_mappings.items())[:3]:
-                    print(f"    '{orig}' → '{mapped}'")
+                    logger.info(f"    '{orig}' → '{mapped}'")
             else:
-                print("  🚨 WARNING: No mappings created - all tags considered unique!")
+                logger.info(
+                    "  🚨 WARNING: No mappings created - all tags considered unique!"
+                )
 
             # STEP 3: Apply mappings to dataset and track statistics
             original_tag_count = 0
@@ -203,7 +207,7 @@ Return ONLY the selected tag, nothing else."""
                             }
                         )
 
-            print(f"  🔄 Total mappings applied: {total_mappings_applied}")
+            logger.info(f"  🔄 Total mappings applied: {total_mappings_applied}")
 
             reduction_count = original_tag_count - deduplicated_tag_count
             reduction_ratio = (
@@ -227,11 +231,13 @@ Return ONLY the selected tag, nothing else."""
                 ),
             }
 
-            print(
+            logger.info(
                 f"  ✅ Tag instances: {original_tag_count} → {deduplicated_tag_count}"
             )
-            print(f"  📉 Total reduction: {reduction_count} ({reduction_ratio:.1%})")
-            print(f"  👥 People affected: {len(person_reductions)}")
+            logger.info(
+                f"  📉 Total reduction: {reduction_count} ({reduction_ratio:.1%})"
+            )
+            logger.info(f"  👥 People affected: {len(person_reductions)}")
 
         cache_key = f"semantic_dataset_dedup_{similarity_threshold}"
         self.cache.set(cache_key, json.dumps(results, default=str))
@@ -310,24 +316,24 @@ Return ONLY the selected tag, nothing else."""
         """Print examples of semantic tag reductions"""
         stats = self.get_stats(similarity_threshold)
         if "error" in stats:
-            print("No semantic deduplication results available")
+            logger.info("No semantic deduplication results available")
             return
 
-        print("\n" + "=" * 60)
-        print("SEMANTIC PERSON-LEVEL TAG DEDUPLICATION EXAMPLES")
-        print(f"Similarity Threshold: {similarity_threshold}")
-        print("=" * 60)
+        logger.info("\n" + "=" * 60)
+        logger.info("SEMANTIC PERSON-LEVEL TAG DEDUPLICATION EXAMPLES")
+        logger.info(f"Similarity Threshold: {similarity_threshold}")
+        logger.info("=" * 60)
 
         for category, cat_stats in stats.items():
             if cat_stats.get("example_reductions"):
-                print(f"\n📊 {category.upper()} Examples:")
+                logger.info(f"\n📊 {category.upper()} Examples:")
                 for example in cat_stats["example_reductions"]:
-                    print(f"  {example['person']}:")
-                    print(f"    Original: {example['original']}")
-                    print(
+                    logger.info(f"  {example['person']}:")
+                    logger.info(f"    Original: {example['original']}")
+                    logger.info(
                         f"    Semantic clusters → Umbrella tags: {example['deduplicated']}"
                     )
-                    print(
+                    logger.info(
                         f"    Reduction: {example['reduction']} tags → {example['clusters_found']} semantic groups"
                     )
 
@@ -353,9 +359,9 @@ if __name__ == "__main__":
     async def main():
         # Test with different thresholds
         for threshold in [0.75, 0.80, 0.85]:
-            print(f"\n{'=' * 60}")
-            print(f"TESTING THRESHOLD: {threshold}")
-            print(f"{'=' * 60}")
+            logger.info(f"\n{'=' * 60}")
+            logger.info(f"TESTING THRESHOLD: {threshold}")
+            logger.info(f"{'=' * 60}")
 
             deduplicator = await run_semantic_deduplication(
                 "data/batch2.csv", threshold
@@ -371,6 +377,6 @@ if __name__ == "__main__":
             result = await deduplicator.apply_semantic_deduplication(
                 test_tags, "role_spec", threshold
             )
-            print(f"\nExample clustering: {test_tags} → {result}")
+            logger.info(f"\nExample clustering: {test_tags} → {result}")
 
     asyncio.run(main())
