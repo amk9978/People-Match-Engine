@@ -58,6 +58,7 @@ jobs:
             cp ~/envs/.env .
             docker build -t match_engine:latest .
             docker-compose down || true
+            docker-compose build || true
             docker-compose up -d
           EOF
           
