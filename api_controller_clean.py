@@ -122,7 +122,7 @@ async def analyze_csv(
         temp_path = await file_service.save_uploaded_file(file)
 
         job_id = analysis_service.create_job(
-            file.filename, min_density, prompt, file_id
+            file.filename, min_density, prompt, file_id, user_id
         )
 
         async def run_analysis_with_tracking():
@@ -194,6 +194,13 @@ async def get_job_result(job_id: str):
         )
 
     return {"job_id": job_id, "result": result}
+
+
+@app.get("/users/{user_id}/jobs")
+async def get_user_jobs(user_id: str):
+    """Get all jobs for a specific user"""
+    jobs = analysis_service.get_jobs_by_user(user_id)
+    return {"user_id": user_id, "jobs": jobs}
 
 
 # Cache endpoints

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Professional Network Match Engine</title>
+    <title>Network Match Engine</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://d3js.org/d3.v7.min.js"></script>
     <style>
@@ -185,6 +185,39 @@
             border-radius: 12px;
             padding: 20px;
         }
+        .job-item {
+            background: white;
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 10px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .job-item:hover {
+            border-color: #3498db;
+            box-shadow: 0 4px 15px rgba(52, 152, 219, 0.2);
+        }
+        .job-item.completed {
+            border-color: #27ae60;
+            background: rgba(39, 174, 96, 0.05);
+        }
+        .job-item.failed {
+            border-color: #e74c3c;
+            background: rgba(231, 76, 60, 0.05);
+        }
+        .job-status {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+        .job-status.completed { background: #d4edda; color: #155724; }
+        .job-status.failed { background: #f8d7da; color: #721c24; }
+        .job-status.processing { background: #fff3cd; color: #856404; }
+        .job-status.queued { background: #cce5ff; color: #004085; }
         .status-card {
             padding: 20px;
             border-radius: 12px;
@@ -479,7 +512,7 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>🔗 Professional Network Match Engine</h1>
+            <h1>🔗 Network Match Engine</h1>
             <p>AI-powered dense subgraph analysis for strategic networking and team building</p>
         </div>
 
@@ -507,6 +540,10 @@
 
                     <!-- File Upload Area (hidden initially) -->
                     <div class="upload-area" id="uploadArea" style="display: none;">
+                        <div class="form-group">
+                            <label for="newProjectUserId">Your User ID</label>
+                            <input type="text" id="newProjectUserId" class="form-control" placeholder="e.g., user123" value="1">
+                        </div>
                         <div>
                             <div style="font-size: 48px; margin-bottom: 15px;">📁</div>
                             <h3>Upload Professional Data CSV</h3>
@@ -522,12 +559,27 @@
                     <!-- Load Job Area (hidden initially) -->
                     <div class="load-job-area" id="loadJobArea" style="display: none;">
                         <div class="form-group">
-                            <label for="jobIdInput">Enter Job ID</label>
-                            <input type="text" id="jobIdInput" class="form-control" placeholder="e.g., 12345678-1234-5678-9abc-123456789012">
+                            <label for="userIdInput">Enter User ID</label>
+                            <input type="text" id="userIdInput" class="form-control" placeholder="e.g., user123">
                         </div>
-                        <div style="display: flex; gap: 10px;">
-                            <button id="loadJobBtn" class="btn btn-primary">Load Job</button>
+                        <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+                            <button id="fetchJobsBtn" class="btn btn-primary">Show My Jobs</button>
                             <button id="backToOptionsFromLoad" class="btn btn-secondary">← Back to Options</button>
+                        </div>
+                        
+                        <!-- Jobs List (hidden initially) -->
+                        <div id="jobsList" style="display: none;">
+                            <h4>Your Previous Jobs:</h4>
+                            <div id="jobsContainer"></div>
+                        </div>
+                        
+                        <!-- Manual Job ID Entry -->
+                        <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #ddd;">
+                            <div class="form-group">
+                                <label for="jobIdInput">Or Enter Job ID Directly</label>
+                                <input type="text" id="jobIdInput" class="form-control" placeholder="e.g., 12345678-1234-5678-9abc-123456789012">
+                            </div>
+                            <button id="loadJobBtn" class="btn btn-primary">Load Job</button>
                         </div>
                     </div>
                 </div>
@@ -1318,10 +1370,16 @@
             try {
                 logMessage('🚀 Initiating analysis request...', 'info');
 
+                const userId = document.getElementById('newProjectUserId').value.trim();
+                if (!userId) {
+                    alert('Please enter your User ID');
+                    return;
+                }
+
                 const response = await fetch('http://localhost:8000/analyze', {
                     method: 'POST',
                     headers: {
-                        'X-User-ID': 'web-demo-user'
+                        'X-User-ID': userId
                     },
                     body: formData
                 });
@@ -1722,6 +1780,27 @@
             document.getElementById('projectOptions').style.display = 'grid';
         });
 
+        document.getElementById('fetchJobsBtn').addEventListener('click', async function() {
+            const userId = document.getElementById('userIdInput').value.trim();
+            if (!userId) {
+                alert('Please enter a valid User ID');
+                return;
+            }
+
+            try {
+                const response = await fetch(`http://localhost:8000/users/${userId}/jobs`);
+                if (response.ok) {
+                    const data = await response.json();
+                    displayJobsList(data.jobs);
+                } else {
+                    alert('Failed to fetch jobs. Please check the User ID.');
+                }
+            } catch (error) {
+                console.error('Error fetching jobs:', error);
+                alert('Error fetching jobs. Please try again.');
+            }
+        });
+
         document.getElementById('loadJobBtn').addEventListener('click', async function() {
             const jobId = document.getElementById('jobIdInput').value.trim();
             if (!jobId) {
@@ -1729,13 +1808,17 @@
                 return;
             }
 
+            await loadJobById(jobId);
+        });
+
+        async function loadJobById(jobId) {
             try {
-                const response = await fetch(`/api/jobs/${jobId}/result`);
+                const response = await fetch(`http://localhost:8000/jobs/${jobId}/result`);
                 if (response.ok) {
                     const jobResult = await response.json();
                     if (jobResult && jobResult.result) {
-                        displayResults(jobResult.result);
-                        addLog('success', `Loaded previous job: ${jobId}`);
+                        showResults(jobResult.result);
+                        logMessage(`✅ Loaded previous job: ${jobId}`, 'success');
                     } else {
                         alert('Job not found or not completed yet');
                     }
@@ -1746,7 +1829,44 @@
                 console.error('Error loading job:', error);
                 alert('Error loading job. Please try again.');
             }
-        });
+        }
+
+        function displayJobsList(jobs) {
+            const jobsList = document.getElementById('jobsList');
+            const jobsContainer = document.getElementById('jobsContainer');
+            
+            if (!jobs || jobs.length === 0) {
+                jobsContainer.innerHTML = '<p>No jobs found for this user.</p>';
+                jobsList.style.display = 'block';
+                return;
+            }
+
+            let html = '';
+            jobs.forEach(job => {
+                const date = new Date(job.timestamp).toLocaleString();
+                const statusClass = job.status.toLowerCase();
+                html += `
+                    <div class="job-item ${statusClass}" onclick="selectJob('${job.job_id}')">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                            <strong>${job.filename || 'Unknown File'}</strong>
+                            <span class="job-status ${statusClass}">${job.status}</span>
+                        </div>
+                        <div style="font-size: 12px; color: #666;">
+                            <div>Job ID: ${job.job_id}</div>
+                            <div>Created: ${date}</div>
+                            ${job.prompt ? `<div>Prompt: ${job.prompt.substring(0, 100)}${job.prompt.length > 100 ? '...' : ''}</div>` : ''}
+                        </div>
+                    </div>
+                `;
+            });
+
+            jobsContainer.innerHTML = html;
+            jobsList.style.display = 'block';
+        }
+
+        async function selectJob(jobId) {
+            await loadJobById(jobId);
+        }
 
         // Initialize WebSocket connection
         connectWebSocket();
