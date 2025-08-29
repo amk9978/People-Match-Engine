@@ -64,11 +64,9 @@ class EmbeddingService:
                 uncached_texts.append(text)
                 uncached_indices.append(i)
 
-        # If all were cached, return early
         if not uncached_texts:
             return results
 
-        # Process uncached texts in true batches (OpenAI limit: 2048 texts per request)
         batch_size = 2048
 
         for batch_start in range(0, len(uncached_texts), batch_size):
@@ -81,7 +79,6 @@ class EmbeddingService:
                     f"Requesting embeddings for batch of {len(batch_texts)} texts..."
                 )
 
-                # TRUE BATCHING: Single API call for entire batch
                 with sentry_sdk.start_transaction(
                     op="ai.embed", name="openai_batch_embedding", sampled=False
                 ):
@@ -90,7 +87,6 @@ class EmbeddingService:
                         model="text-embedding-3-small",
                     )
 
-                # VALIDATION: Ensure we got exactly what we expected
                 if len(response.data) != len(batch_texts):
                     raise ValueError(
                         f"Expected {len(batch_texts)} embeddings, got {len(response.data)}"

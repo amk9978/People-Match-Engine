@@ -25,7 +25,7 @@ class AppCacheService:
     def _get_row_hash(self, row_data: Dict[str, Any]) -> str:
         """Generate consistent hash for a row based on its content"""
         content = json.dumps(row_data, sort_keys=True)
-        return hashlib.md5(content.encode()).hexdigest()[:12]
+        return hashlib.md5(content.encode()).hexdigest()
 
     def _get_person_cache_key(self, row_hash: str, feature_type: str) -> str:
         """Generate cache key for person-level data"""

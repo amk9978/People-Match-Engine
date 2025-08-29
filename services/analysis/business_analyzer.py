@@ -1,16 +1,20 @@
 import asyncio
-import hashlib
 import json
 import logging
 import os
 import re
-from typing import Dict, List, Set, Union, overload
+import sys
+from typing import Dict, List, Union, overload
 
-import pandas as pd
 from openai import AsyncOpenAI
 
 from services.redis.app_cache_service import app_cache_service
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)],
+)
 logger = logging.getLogger(__name__)
 
 
@@ -140,7 +144,7 @@ class BusinessAnalyzer:
     ) -> Dict[str, Dict[str, float]]:
         """Process a single batch of targets concurrently"""
         targets_list = "\n".join(
-            [f"{j+1}. {profile}" for j, profile in enumerate(batch_targets)]
+            [f"{j + 1}. {profile}" for j, profile in enumerate(batch_targets)]
         )
         comparison_list = "\n".join([f"- {profile}" for profile in comparison_profiles])
 
@@ -178,6 +182,14 @@ CRITICAL: Return ONLY valid JSON, no explanations. Use exact target profile name
                 max_tokens=6000,
             )
 
+            if hasattr(response, "_headers"):
+                headers = response._headers
+                remaining_requests = headers.get("x-ratelimit-remaining-requests")
+                remaining_tokens = headers.get("x-ratelimit-remaining-tokens")
+                logger.info(
+                    f"Rate limit status - Requests remaining: {remaining_requests}, Tokens remaining: {remaining_tokens}"
+                )
+
             result_text = response.choices[0].message.content.strip()
             batch_results = self._parse_batch_chatgpt_response(
                 result_text, batch_targets, comparison_profiles
@@ -208,7 +220,7 @@ CRITICAL: Return ONLY valid JSON, no explanations. Use exact target profile name
         target_profiles: str,
         comparison_profiles: List[str],
         category: str,
-        batch_size: int = 16,
+        batch_size: int = 4,
     ) -> Dict[str, float]: ...
 
     @overload
@@ -217,7 +229,7 @@ CRITICAL: Return ONLY valid JSON, no explanations. Use exact target profile name
         target_profiles: List[str],
         comparison_profiles: List[str],
         category: str,
-        batch_size: int = 16,
+        batch_size: int = 4,
     ) -> Dict[str, Dict[str, float]]: ...
 
     async def get_profile_complementarity(
@@ -225,7 +237,7 @@ CRITICAL: Return ONLY valid JSON, no explanations. Use exact target profile name
         target_profiles: Union[str, List[str]],
         comparison_profiles: List[str],
         category: str,
-        batch_size: int = 16,
+        batch_size: int = 4,
     ) -> Union[Dict[str, float], Dict[str, Dict[str, float]]]:
         """Get complementarity scores for single or multiple target profiles in batched requests"""
 

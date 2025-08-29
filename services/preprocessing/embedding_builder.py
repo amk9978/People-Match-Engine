@@ -84,7 +84,7 @@ class EmbeddingBuilder:
                 f"Found {len(cached_embeddings)} cached embeddings, {len(uncached_indices)} need computing"
             )
 
-            person_feature_embeddings = [None] * len(df)
+            person_feature_embeddings = {}
             for idx, embedding in cached_embeddings.items():
                 person_feature_embeddings[idx] = embedding
 
@@ -92,9 +92,11 @@ class EmbeddingBuilder:
                 logger.info(
                     f"Computing embeddings for {len(uncached_indices)} uncached people. {feature_name}"
                 )
-
+                valid_uncached_indices = [
+                    idx for idx in uncached_indices if idx < len(df)
+                ]
                 all_unique_values = set()
-                for idx in uncached_indices:
+                for idx in valid_uncached_indices:
                     row = df.iloc[idx]
                     values = await self.extract_and_deduplicate_tags(
                         row[column_name], feature_name
@@ -143,7 +145,7 @@ class EmbeddingBuilder:
                             value_embeddings[value] = embedding
 
                 new_person_embeddings = {}
-                for idx in uncached_indices:
+                for idx in valid_uncached_indices:
                     row = df.iloc[idx]
                     values = await self.extract_and_deduplicate_tags(
                         row[column_name], feature_name
@@ -177,14 +179,18 @@ class EmbeddingBuilder:
                     f"Cached {len(new_person_embeddings)} new person embeddings"
                 )
 
-            for i in range(len(person_feature_embeddings)):
-                if person_feature_embeddings[i] is None:
-                    person_feature_embeddings[i] = [0.0] * 1536
+            # Convert dictionary back to array aligned with DataFrame
+            embeddings_array = []
+            for i in df.index:
+                if i in person_feature_embeddings:
+                    embeddings_array.append(person_feature_embeddings[i])
+                else:
+                    embeddings_array.append([0.0] * 1536)
                     logger.warning(
                         f"Warning: No embedding for person at index {i}, using fallback"
                     )
 
-            feature_embeddings[feature_name] = np.array(person_feature_embeddings)
+            feature_embeddings[feature_name] = np.array(embeddings_array)
             logger.info(
                 f"Created {feature_embeddings[feature_name].shape[1]}D embeddings for {len(person_feature_embeddings)} people"
             )
