@@ -112,9 +112,7 @@ class AppCacheService:
         uncached_indices = []
 
         for idx, row in df.iterrows():
-            logger.info("About to extract row_data")
             row_data = self._extract_row_data(row, feature_type)
-            logger.info("About to get_person_embedding")
             embedding = self.get_person_embedding(row_data, feature_type)
             if embedding:
                 cached_embeddings[idx] = embedding

@@ -21,6 +21,8 @@ services:
     volumes:
       - matcher_data:/app/data
     restart: unless-stopped
+    depends_on:
+      - redis
 
 volumes:
   redis_data:

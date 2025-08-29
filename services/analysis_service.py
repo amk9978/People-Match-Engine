@@ -534,7 +534,6 @@ class AnalysisService:
 
             result["expansion_recommendations"] = []
 
-            # Debug: Add info about the data being analyzed
             result["debug_info"] = {
                 "csv_path": csv_path,
                 "dataset_rows": len(graph_builder.df),
@@ -543,7 +542,6 @@ class AnalysisService:
                 "analysis_timestamp": datetime.now().isoformat(),
             }
 
-            # Log key dataset info for debugging
             if hasattr(graph_builder, "df") and not graph_builder.df.empty:
                 sample_names = (
                     list(graph_builder.df["Person Name"].head(3))

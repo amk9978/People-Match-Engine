@@ -90,7 +90,7 @@ class EmbeddingBuilder:
 
             if uncached_indices:
                 logger.info(
-                    f"Computing embeddings for {len(uncached_indices)} uncached people..."
+                    f"Computing embeddings for {len(uncached_indices)} uncached people. {feature_name}"
                 )
 
                 all_unique_values = set()
