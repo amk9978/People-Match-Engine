@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import sys
 from typing import Dict, List
 
 import numpy as np
@@ -12,6 +13,11 @@ from services.preprocessing.semantic_person_deduplicator import (
 from services.preprocessing.tag_extractor import tag_extractor
 from services.redis.app_cache_service import app_cache_service
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)],
+)
 logger = logging.getLogger(__name__)
 
 
@@ -68,8 +74,6 @@ class EmbeddingBuilder:
             logger.info(
                 f"\nProcessing {feature_name} ({column_name}) with row-based caching..."
             )
-
-            # Check which people already have cached embeddings for this feature
             cache_status = self.cache.get_dataset_embedding_cache_status(
                 df, feature_name
             )
@@ -77,23 +81,18 @@ class EmbeddingBuilder:
             uncached_indices = cache_status["uncached_indices"]
 
             logger.info(
-                f"  Found {len(cached_embeddings)} cached embeddings, {len(uncached_indices)} need computing"
+                f"Found {len(cached_embeddings)} cached embeddings, {len(uncached_indices)} need computing"
             )
 
-            # Prepare person embeddings array
             person_feature_embeddings = [None] * len(df)
-
-            # Use cached embeddings
             for idx, embedding in cached_embeddings.items():
                 person_feature_embeddings[idx] = embedding
 
-            # Compute embeddings for uncached people
             if uncached_indices:
                 logger.info(
-                    f"  Computing embeddings for {len(uncached_indices)} uncached people..."
+                    f"Computing embeddings for {len(uncached_indices)} uncached people..."
                 )
 
-                # Collect unique values from uncached people only
                 all_unique_values = set()
                 for idx in uncached_indices:
                     row = df.iloc[idx]
@@ -103,10 +102,9 @@ class EmbeddingBuilder:
                     all_unique_values.update(values)
 
                 logger.info(
-                    f"  Found {len(all_unique_values)} unique values from uncached people"
+                    f"Found {len(all_unique_values)} unique values from uncached people"
                 )
 
-                # Get text embeddings (this uses existing text-level caching)
                 cached_values = {}
                 uncached_values = []
                 cache_hits = 0
@@ -123,12 +121,11 @@ class EmbeddingBuilder:
                         cached_values[value] = [0.0] * 1536
 
                 logger.info(
-                    f"    Text cache hits: {cache_hits}, API calls needed: {len(uncached_values)}"
+                    f"Text cache hits: {cache_hits}, API calls needed: {len(uncached_values)}"
                 )
 
                 value_embeddings = cached_values.copy()
 
-                # Get embeddings for uncached text values
                 if uncached_values:
                     tasks = []
                     for value in uncached_values:
@@ -140,12 +137,11 @@ class EmbeddingBuilder:
 
                     for value, embedding in zip(uncached_values, embeddings_results):
                         if isinstance(embedding, Exception):
-                            logger.info(f"    Error processing {value}: {embedding}")
+                            logger.info(f"Error processing {value}: {embedding}")
                             value_embeddings[value] = [0.0] * 1536
                         else:
                             value_embeddings[value] = embedding
 
-                # Compute person embeddings for uncached people
                 new_person_embeddings = {}
                 for idx in uncached_indices:
                     row = df.iloc[idx]
@@ -174,26 +170,23 @@ class EmbeddingBuilder:
                     person_feature_embeddings[idx] = person_embedding.tolist()
                     new_person_embeddings[idx] = person_embedding.tolist()
 
-                # Cache the new person embeddings
                 self.cache.cache_dataset_embeddings(
                     df, feature_name, new_person_embeddings
                 )
                 logger.info(
-                    f"  Cached {len(new_person_embeddings)} new person embeddings"
+                    f"Cached {len(new_person_embeddings)} new person embeddings"
                 )
 
-            # Fill any remaining None values (shouldn't happen)
             for i in range(len(person_feature_embeddings)):
                 if person_feature_embeddings[i] is None:
                     person_feature_embeddings[i] = [0.0] * 1536
                     logger.warning(
-                        f"  Warning: No embedding for person at index {i}, using fallback"
+                        f"Warning: No embedding for person at index {i}, using fallback"
                     )
 
-            # Convert to numpy array
             feature_embeddings[feature_name] = np.array(person_feature_embeddings)
             logger.info(
-                f"  ✅ Created {feature_embeddings[feature_name].shape[1]}D embeddings for {len(person_feature_embeddings)} people"
+                f"Created {feature_embeddings[feature_name].shape[1]}D embeddings for {len(person_feature_embeddings)} people"
             )
 
         cache_info = self.cache.get_cache_stats()

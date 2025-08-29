@@ -295,12 +295,6 @@ class GraphBuilder:
                     avg_weight = 0.0
 
                 dense_subgraphs.append(current_nodes)
-
-                logger.info(f"Subgraph summary:")
-                logger.info(f"  • Size: {len(current_nodes)} people")
-                logger.info(f"  • Density: {current_density:.4f}")
-                logger.info(f"  • Average edge weight: {avg_weight:.4f}")
-
                 if not find_all:
                     logger.info(
                         "🎯 Found target dense subgraph, stopping early (find_all=False)"

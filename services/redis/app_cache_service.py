@@ -1,12 +1,18 @@
 import hashlib
 import json
 import logging
+import sys
 from typing import Any, Dict, List, Optional, Set
 
 import pandas as pd
 
 from services.redis.redis_cache import RedisEmbeddingCache
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)],
+)
 logger = logging.getLogger(__name__)
 
 
