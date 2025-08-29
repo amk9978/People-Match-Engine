@@ -75,12 +75,12 @@ class EmbeddingBuilder:
             logger.info(
                 f"\nProcessing {feature_name} ({column_name}) with row-based caching..."
             )
-            
+
             try:
                 cache_status = self.cache.get_dataset_embedding_cache_status(
                     df, feature_name
                 )
-                
+
                 if cache_status is None:
                     logger.error(f"❌ Cache status returned None for {feature_name}")
                     logger.error(f"❌ Cache object type: {type(self.cache)}")
@@ -92,7 +92,9 @@ class EmbeddingBuilder:
                     uncached_indices = list(range(len(df)))
                 else:
                     cached_embeddings = cache_status.get("cached_embeddings", {})
-                    uncached_indices = cache_status.get("uncached_indices", list(range(len(df))))
+                    uncached_indices = cache_status.get(
+                        "uncached_indices", list(range(len(df)))
+                    )
 
                 logger.info(
                     f"Found {len(cached_embeddings)} cached embeddings, {len(uncached_indices)} need computing"
@@ -151,7 +153,9 @@ class EmbeddingBuilder:
                             *tasks, return_exceptions=True
                         )
 
-                        for value, embedding in zip(uncached_values, embeddings_results):
+                        for value, embedding in zip(
+                            uncached_values, embeddings_results
+                        ):
                             if isinstance(embedding, Exception):
                                 logger.info(f"Error processing {value}: {embedding}")
                                 value_embeddings[value] = [0.0] * 384
@@ -173,8 +177,12 @@ class EmbeddingBuilder:
                             ]
 
                             if person_value_embeddings:
-                                person_value_embeddings = np.array(person_value_embeddings)
-                                person_embedding = np.sum(person_value_embeddings, axis=0)
+                                person_value_embeddings = np.array(
+                                    person_value_embeddings
+                                )
+                                person_embedding = np.sum(
+                                    person_value_embeddings, axis=0
+                                )
                                 norm = np.linalg.norm(person_embedding)
                                 if norm > 0:
                                     person_embedding = person_embedding / norm
@@ -208,13 +216,13 @@ class EmbeddingBuilder:
                     logger.info(
                         f"Created {feature_embeddings[feature_name].shape[1]}D embeddings for {len(person_feature_embeddings)} people"
                     )
-                
+
             except Exception as e:
                 logger.error(f"❌ Analysis failed for {feature_name}: {e}")
                 logger.error(f"❌ Exception type: {type(e).__name__}")
                 logger.error(f"❌ Exception details: {str(e)}")
                 logger.error(f"❌ Full traceback: {traceback.format_exc()}")
-                
+
                 # Create fallback embeddings (zero vectors)
                 fallback_embeddings = np.zeros((len(df), 384))
                 feature_embeddings[feature_name] = fallback_embeddings

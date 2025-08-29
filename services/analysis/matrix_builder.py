@@ -60,7 +60,7 @@ class MatrixBuilder:
             for target_profile in profiles_list:
                 if target_profile in batch_results:
                     batch_result = batch_results[target_profile]
-                    
+
                     # Handle malformed batch result (should be dict, not float)
                     if isinstance(batch_result, dict):
                         # Remove self-comparison (set to 0)
@@ -74,7 +74,9 @@ class MatrixBuilder:
                         )
                     else:
                         # Fallback for malformed batch result (float instead of dict)
-                        logger.warning(f"  ⚠️ Batch result for {target_profile} is {type(batch_result).__name__}, expected dict. Using fallback.")
+                        logger.warning(
+                            f"  ⚠️ Batch result for {target_profile} is {type(batch_result).__name__}, expected dict. Using fallback."
+                        )
                         other_profiles_only = [
                             p for p in profiles_list if p != target_profile
                         ]
@@ -146,7 +148,7 @@ class MatrixBuilder:
         for target_profile in profile_list:
             if target_profile in batch_results:
                 batch_result = batch_results[target_profile]
-                
+
                 # Handle malformed batch result (should be dict, not float)
                 if isinstance(batch_result, dict):
                     # Remove self-comparison (set to 0)
@@ -160,8 +162,12 @@ class MatrixBuilder:
                     )
                 else:
                     # Fallback for malformed batch result (float instead of dict)
-                    logger.warning(f"  ⚠️ Batch result for {target_profile} is {type(batch_result).__name__}, expected dict. Using fallback.")
-                    other_profiles_only = [p for p in profile_list if p != target_profile]
+                    logger.warning(
+                        f"  ⚠️ Batch result for {target_profile} is {type(batch_result).__name__}, expected dict. Using fallback."
+                    )
+                    other_profiles_only = [
+                        p for p in profile_list if p != target_profile
+                    ]
                     matrix[target_profile] = {
                         profile: 0.5 for profile in other_profiles_only
                     }
