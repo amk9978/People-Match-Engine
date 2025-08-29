@@ -28,7 +28,6 @@ class BusinessAnalyzer:
             api_key=settings.OPENAI_API_KEY, timeout=settings.OPENAI_TIMEOUT
         )
         self.cache = app_cache_service
-        self.batch_delay = settings.ANALYZER_BATCH_DELAY
 
     def _parse_chatgpt_response(
         self, result_text: str, comparison_tags: List[str]
@@ -197,19 +196,6 @@ class BusinessAnalyzer:
             for target in target_profiles
         }
 
-    async def _process_single_batch_with_delay(
-        self,
-        batch_targets: List[str],
-        comparison_profiles: List[str],
-        category: str,
-        delay: float,
-    ) -> Dict[str, Dict[str, float]]:
-        """Process a single batch with initial delay for rate limiting"""
-        if delay > 0:
-            await asyncio.sleep(delay)
-        return await self._process_single_batch(
-            batch_targets, comparison_profiles, category
-        )
 
     async def _process_single_batch(
         self, batch_targets: List[str], comparison_profiles: List[str], category: str
@@ -349,10 +335,9 @@ class BusinessAnalyzer:
         tasks = []
         for i in range(0, len(uncached_targets), batch_size):
             batch_targets = uncached_targets[i : i + batch_size]
-            delay = i // batch_size * self.batch_delay
             task = asyncio.create_task(
-                self._process_single_batch_with_delay(
-                    batch_targets, comparison_profiles, category, delay
+                self._process_single_batch(
+                    batch_targets, comparison_profiles, category
                 )
             )
             tasks.append((task, batch_targets))
