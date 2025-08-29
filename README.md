@@ -1,5 +1,7 @@
 # 🎯 Match Engine
 
+[![CI/CD Pipeline](https://github.com/amk9978/people_match_engine/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/amk9978/people_match_engine/actions/workflows/ci-cd.yml)
+
 **Enterprise-grade Professional Network Analysis Platform**
 
 A sophisticated graph-based matching system that discovers optimal professional communities using advanced multi-feature
