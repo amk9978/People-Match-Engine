@@ -103,13 +103,11 @@ class BusinessAnalyzer:
     ) -> Dict[str, Dict[str, float]]:
         """Parse batch ChatGPT response with fallback strategies"""
 
-        # Strategy 1: Try direct JSON parsing
         try:
             return json.loads(result_text)
         except json.JSONDecodeError:
             pass
 
-        # Strategy 2: Remove markdown formatting
         try:
             if "```json" in result_text:
                 json_part = result_text.split("```json")[1].split("```")[0].strip()
@@ -131,10 +129,7 @@ class BusinessAnalyzer:
         except (json.JSONDecodeError, AttributeError):
             pass
 
-        # Final fallback: Return moderate scores for all combinations
-        logger.info(
-            f"  ⚠️ Could not parse batch ChatGPT response, using fallback scores"
-        )
+        logger.info(f"Could not parse batch ChatGPT response, using fallback scores. Result: {result_text}")
         return {
             target: {comp: 0.5 for comp in comparison_profiles}
             for target in target_profiles

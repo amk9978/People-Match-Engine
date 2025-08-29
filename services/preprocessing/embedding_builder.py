@@ -6,7 +6,7 @@ from typing import Dict, List
 import numpy as np
 import pandas as pd
 
-from services.preprocessing.embedding_service import embedding_service
+from services.preprocessing.fast_embedding_service import fast_embedding_service
 from services.preprocessing.semantic_person_deduplicator import (
     SemanticPersonDeduplicator,
 )
@@ -39,7 +39,7 @@ class EmbeddingBuilder:
 
     async def get_cached_embedding(self, tag: str) -> List[float]:
         """Get embedding using shared embedding service"""
-        return await embedding_service.get_embedding(tag)
+        return await fast_embedding_service.get_embedding(tag)
 
     async def extract_business_tags_for_person(self, row) -> Dict[str, List[str]]:
         """Extract deduplicated business tags for a person for causal analysis"""
@@ -63,7 +63,7 @@ class EmbeddingBuilder:
         return business_tags
 
     async def embed_features(
-        self, df: pd.DataFrame, feature_columns: Dict[str, str]
+            self, df: pd.DataFrame, feature_columns: Dict[str, str]
     ) -> Dict[str, np.ndarray]:
         """Create OpenAI embeddings for multiple feature categories with row-based caching"""
         logger.info("Creating feature embeddings with row-based caching...")
@@ -120,7 +120,7 @@ class EmbeddingBuilder:
                         else:
                             uncached_values.append(value)
                     else:
-                        cached_values[value] = [0.0] * 1536
+                        cached_values[value] = [0.0] * 384
 
                 logger.info(
                     f"Text cache hits: {cache_hits}, API calls needed: {len(uncached_values)}"
@@ -140,7 +140,7 @@ class EmbeddingBuilder:
                     for value, embedding in zip(uncached_values, embeddings_results):
                         if isinstance(embedding, Exception):
                             logger.info(f"Error processing {value}: {embedding}")
-                            value_embeddings[value] = [0.0] * 1536
+                            value_embeddings[value] = [0.0] * 384
                         else:
                             value_embeddings[value] = embedding
 
@@ -165,9 +165,9 @@ class EmbeddingBuilder:
                             if norm > 0:
                                 person_embedding = person_embedding / norm
                         else:
-                            person_embedding = [0.0] * 1536
+                            person_embedding = [0.0] * 384
                     else:
-                        person_embedding = [0.0] * 1536
+                        person_embedding = [0.0] * 384
 
                     person_feature_embeddings[idx] = person_embedding.tolist()
                     new_person_embeddings[idx] = person_embedding.tolist()
@@ -185,7 +185,7 @@ class EmbeddingBuilder:
                 if i in person_feature_embeddings:
                     embeddings_array.append(person_feature_embeddings[i])
                 else:
-                    embeddings_array.append([0.0] * 1536)
+                    embeddings_array.append([0.0] * 384)
                     logger.warning(
                         f"Warning: No embedding for person at index {i}, using fallback"
                     )
@@ -201,11 +201,11 @@ class EmbeddingBuilder:
         return feature_embeddings
 
     async def preprocess_tags(
-        self,
-        csv_path: str,
-        similarity_threshold: float = 0.7,
-        fuzzy_threshold: float = 0.90,
-        force_rebuild: bool = False,
+            self,
+            csv_path: str,
+            similarity_threshold: float = 0.7,
+            fuzzy_threshold: float = 0.90,
+            force_rebuild: bool = False,
     ) -> Dict[str, any]:
         """Run tag deduplication preprocessing"""
         logger.info("Running tag deduplication preprocessing...")

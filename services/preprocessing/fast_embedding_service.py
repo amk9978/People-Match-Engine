@@ -4,24 +4,23 @@ from typing import List
 
 import numpy as np
 import sentry_sdk
-from dotenv import load_dotenv
-from openai import AsyncOpenAI
+from fastembed import TextEmbedding
 
 import settings
 from services.preprocessing.embedding_interface import EmbeddingServiceProtocol
 from services.redis.redis_cache import RedisEmbeddingCache
 
-load_dotenv()
 logger = logging.getLogger(__name__)
 
 
-class EmbeddingService(EmbeddingServiceProtocol):
-    """Shared service for OpenAI embedding retrieval with Redis caching"""
+class FastEmbeddingService(EmbeddingServiceProtocol):
+    """Shared service for FastEmbed embedding retrieval with Redis caching"""
 
-    def __init__(self):
-        self.openai_client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+    def __init__(self, model_name: str = "BAAI/bge-small-en-v1.5"):
+        self.model = TextEmbedding(model_name=model_name)
         self.cache = RedisEmbeddingCache()
         self.batch_delay = settings.EMBEDDING_BATCH_DELAY
+        self.embedding_dim = 384
 
     async def get_embedding(self, text: str) -> List[float]:
         """Get embedding with caching, returns List[float] for compatibility"""
@@ -31,17 +30,16 @@ class EmbeddingService(EmbeddingServiceProtocol):
 
         try:
             with sentry_sdk.start_transaction(
-                    op="ai.embed", name="openai_embedding", sampled=False
+                    op="ai.embed", name="fastembed_embedding", sampled=False
             ):
-                response = await self.openai_client.embeddings.create(
-                    input=text, model="text-embedding-3-small"
-                )
-            embedding = response.data[0].embedding
+                embeddings = list(self.model.embed([text]))
+                embedding = embeddings[0].tolist()
+
             self.cache.set(text, embedding)
             return embedding
         except Exception as e:
             logger.error(f"Error getting embedding for '{text}': {e}")
-            return [0.0] * 1536
+            return [0.0] * self.embedding_dim
 
     async def get_embedding_array(self, text: str) -> np.ndarray:
         """Get embedding as numpy array"""
@@ -83,28 +81,25 @@ class EmbeddingService(EmbeddingServiceProtocol):
                 )
 
                 with sentry_sdk.start_transaction(
-                        op="ai.embed", name="openai_batch_embedding", sampled=False
+                        op="ai.embed", name="fastembed_batch_embedding", sampled=False
                 ):
-                    response = await self.openai_client.embeddings.create(
-                        input=batch_texts,  # Send all texts at once
-                        model="text-embedding-3-small",
-                    )
+                    embeddings = list(self.model.embed(batch_texts))
 
-                if len(response.data) != len(batch_texts):
+                if len(embeddings) != len(batch_texts):
                     raise ValueError(
-                        f"Expected {len(batch_texts)} embeddings, got {len(response.data)}"
+                        f"Expected {len(batch_texts)} embeddings, got {len(embeddings)}"
                     )
 
                 # Process each embedding in the response
-                for i, embedding_data in enumerate(response.data):
+                for i, embedding_array in enumerate(embeddings):
                     original_index = batch_indices[i]
                     original_text = batch_texts[i]
-                    embedding = embedding_data.embedding
+                    embedding = embedding_array.tolist()
 
                     # VALIDATION: Check embedding dimensions
-                    if len(embedding) != 1536:
+                    if len(embedding) != self.embedding_dim:
                         raise ValueError(
-                            f"Expected 1536 dimensions, got {len(embedding)} for text: '{original_text}'"
+                            f"Expected {self.embedding_dim} dimensions, got {len(embedding)} for text: '{original_text}'"
                         )
 
                     # Store in results and cache
@@ -128,13 +123,11 @@ class EmbeddingService(EmbeddingServiceProtocol):
                     try:
                         with sentry_sdk.start_transaction(
                                 op="ai.embed",
-                                name="openai_fallback_embedding",
+                                name="fastembed_fallback_embedding",
                                 sampled=False,
                         ):
-                            response = await self.openai_client.embeddings.create(
-                                input=text, model="text-embedding-3-small"
-                            )
-                        embedding = response.data[0].embedding
+                            embeddings = list(self.model.embed([text]))
+                            embedding = embeddings[0].tolist()
                         results[original_index] = embedding
                         self.cache.set(text, embedding)
 
@@ -142,7 +135,7 @@ class EmbeddingService(EmbeddingServiceProtocol):
                         logger.error(
                             f"Error getting embedding for '{text}': {individual_error}"
                         )
-                        results[original_index] = [0.0] * 1536  # Fallback embedding
+                        results[original_index] = [0.0] * self.embedding_dim
 
         # FINAL VALIDATION: Ensure no None values remain
         for i, result in enumerate(results):
@@ -150,7 +143,7 @@ class EmbeddingService(EmbeddingServiceProtocol):
                 logger.info(
                     f"Warning: No embedding obtained for text at index {i}: '{texts[i]}'. Using fallback."
                 )
-                results[i] = [0.0] * 1536
+                results[i] = [0.0] * self.embedding_dim
 
         logger.info(
             f"Batch embedding complete: {len(results)} total embeddings returned"
@@ -159,4 +152,4 @@ class EmbeddingService(EmbeddingServiceProtocol):
 
 
 # Global instance for easy import
-embedding_service = EmbeddingService()
+fast_embedding_service = FastEmbeddingService()
