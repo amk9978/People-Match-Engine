@@ -198,12 +198,18 @@ class BusinessAnalyzer:
         }
 
     async def _process_single_batch_with_delay(
-        self, batch_targets: List[str], comparison_profiles: List[str], category: str, delay: float
+        self,
+        batch_targets: List[str],
+        comparison_profiles: List[str],
+        category: str,
+        delay: float,
     ) -> Dict[str, Dict[str, float]]:
         """Process a single batch with initial delay for rate limiting"""
         if delay > 0:
             await asyncio.sleep(delay)
-        return await self._process_single_batch(batch_targets, comparison_profiles, category)
+        return await self._process_single_batch(
+            batch_targets, comparison_profiles, category
+        )
 
     async def _process_single_batch(
         self, batch_targets: List[str], comparison_profiles: List[str], category: str
@@ -345,11 +351,15 @@ class BusinessAnalyzer:
             batch_targets = uncached_targets[i : i + batch_size]
             delay = i // batch_size * self.batch_delay
             task = asyncio.create_task(
-                self._process_single_batch_with_delay(batch_targets, comparison_profiles, category, delay)
+                self._process_single_batch_with_delay(
+                    batch_targets, comparison_profiles, category, delay
+                )
             )
             tasks.append((task, batch_targets))
 
-        batch_results_list = await asyncio.gather(*[task for task, _ in tasks], return_exceptions=True)
+        batch_results_list = await asyncio.gather(
+            *[task for task, _ in tasks], return_exceptions=True
+        )
 
         for (task, batch_targets), batch_result in zip(tasks, batch_results_list):
             if isinstance(batch_result, Exception):
@@ -379,7 +389,9 @@ class BusinessAnalyzer:
                         batch_cache_results, comparison_profiles, category
                     )
 
-        logger.info(f"Batch processing complete: {len(results)} {category} profiles processed")
+        logger.info(
+            f"Batch processing complete: {len(results)} {category} profiles processed"
+        )
 
         if single_profile:
             return results[list(results.keys())[0]]
