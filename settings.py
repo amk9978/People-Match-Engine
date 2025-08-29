@@ -21,7 +21,7 @@ def get_envs(env_key: str, cast, default=None) -> str | int | float | bool | Any
 
 OPENAI_TIMEOUT = get_envs("OPENAI_TIMEOUT", cast=float, default=120.0)
 EMBEDDING_BATCH_DELAY = get_envs("EMBEDDING_BATCH_DELAY", cast=float, default=2.0)
-ANALYZER_BATCH_DELAY = get_envs("ANALYZER_BATCH_DELAY", cast=float, default=2.0)
+ANALYZER_BATCH_DELAY = get_envs("ANALYZER_BATCH_DELAY", cast=float, default=0.01)
 OPENAI_API_KEY = get_envs("OPENAI_API_KEY", cast=str, default="")
 LLM_MODEL = get_envs("LLM_MODEL", cast=str, default="gpt-4o-mini")
 MAX_TOKENS = get_envs("MAX_TOKENS", cast=int, default=6000)

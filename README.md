@@ -223,29 +223,6 @@ Access the **interactive OpenAPI documentation** at `http://localhost:8000/docs`
 
 </details>
 
-## 🚀 Deployment & Scaling
-
-### **Production Configuration**
-
-```bash
-# Environment variables
-OPENAI_API_KEY=your_api_key
-REDIS_URL=redis://localhost:6379
-MIN_DENSITY=0.3
-MAX_CONCURRENT_JOBS=10
-CACHE_TTL=3600
-
-# Docker Compose production setup
-docker compose -f docker-compose.prod.yml up -d
-```
-
-### **Performance Optimization**
-
-- **FAISS Integration** - Handles datasets with 10K+ professionals
-- **Redis Clustering** - Distributed caching for horizontal scale
-- **Async Processing** - Concurrent matrix building and API operations
-- **Smart Caching** - Embedding and graph result persistence
-
 ## 🔮 Future Roadmap
 
 - Swap ChatGPT as a judge with simpler and faster models

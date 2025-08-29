@@ -197,6 +197,14 @@ class BusinessAnalyzer:
             for target in target_profiles
         }
 
+    async def _process_single_batch_with_delay(
+        self, batch_targets: List[str], comparison_profiles: List[str], category: str, delay: float
+    ) -> Dict[str, Dict[str, float]]:
+        """Process a single batch with initial delay for rate limiting"""
+        if delay > 0:
+            await asyncio.sleep(delay)
+        return await self._process_single_batch(batch_targets, comparison_profiles, category)
+
     async def _process_single_batch(
         self, batch_targets: List[str], comparison_profiles: List[str], category: str
     ) -> Dict[str, Dict[str, float]]:
@@ -313,12 +321,10 @@ class BusinessAnalyzer:
     ) -> Union[Dict[str, float], Dict[str, Dict[str, float]]]:
         """Get complementarity scores for single or multiple target profiles in batched requests"""
 
-        # Handle single profile input
         single_profile = isinstance(target_profiles, str)
         if single_profile:
             target_profiles = [target_profiles]
 
-        # Check cache status for the dataset
         cache_status = self.cache.get_dataset_complementarity_cache_status(
             target_profiles, comparison_profiles, category
         )
@@ -334,27 +340,17 @@ class BusinessAnalyzer:
             f"Processing {len(uncached_targets)} uncached {category} profiles in batches of {batch_size}"
         )
 
-        # Create all batch tasks concurrently
         tasks = []
         for i in range(0, len(uncached_targets), batch_size):
             batch_targets = uncached_targets[i : i + batch_size]
+            delay = i // batch_size * self.batch_delay
             task = asyncio.create_task(
-                self._process_single_batch(batch_targets, comparison_profiles, category)
+                self._process_single_batch_with_delay(batch_targets, comparison_profiles, category, delay)
             )
             tasks.append((task, batch_targets))
 
-        # Execute batches with delay between them
-        batch_results_list = []
-        for i, (task, batch_targets) in enumerate(tasks):
-            if i > 0:
-                await asyncio.sleep(self.batch_delay)
-            try:
-                batch_result = await task
-                batch_results_list.append(batch_result)
-            except Exception as e:
-                batch_results_list.append(e)
+        batch_results_list = await asyncio.gather(*[task for task, _ in tasks], return_exceptions=True)
 
-        # Process results and handle exceptions
         for (task, batch_targets), batch_result in zip(tasks, batch_results_list):
             if isinstance(batch_result, Exception):
                 logger.error(f"  ❌ Batch task failed: {batch_result}")
@@ -378,17 +374,13 @@ class BusinessAnalyzer:
                             f"  ⚠️ No result for {target[:50]}..., using fallback"
                         )
 
-                # Cache all batch results at once
                 if batch_cache_results:
                     self.cache.cache_dataset_complementarity_results(
                         batch_cache_results, comparison_profiles, category
                     )
 
-        logger.info(
-            f"✅ Batch processing complete: {len(results)} {category} profiles processed"
-        )
+        logger.info(f"Batch processing complete: {len(results)} {category} profiles processed")
 
-        # Return single profile result if input was single profile
         if single_profile:
             return results[list(results.keys())[0]]
 
