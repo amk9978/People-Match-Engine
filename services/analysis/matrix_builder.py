@@ -7,6 +7,7 @@ import pandas as pd
 from services.analysis.business_analyzer import BusinessAnalyzer
 from services.preprocessing.tag_extractor import tag_extractor
 from services.redis.app_cache_service import app_cache_service
+from shared.shared import BUSINESS_FEATURES, FEATURE_COLUMN_MAPPING, FeatureNames
 
 logging.basicConfig(
     level=logging.INFO,
@@ -85,9 +86,7 @@ class MatrixBuilder:
         df = pd.read_csv(csv_path)
 
         business_columns = {
-            "industry": "Company Identity - Industry Classification",
-            "market": "Company Market - Market Traction",
-            "offering": "Company Offering - Value Proposition",
+            feature: FEATURE_COLUMN_MAPPING[feature] for feature in BUSINESS_FEATURES
         }
 
         business_profiles = {category: set() for category in business_columns.keys()}
@@ -159,9 +158,9 @@ class MatrixBuilder:
 
         if category == "role":
             column = "Professional Identity - Role Specification"
-        elif category == "experience":
+        elif category == FeatureNames.EXPERIENCE.value:
             column = "Professional Identity - Experience Level"
-        elif category == "persona":
+        elif category == FeatureNames.PERSONA.value:
             column = "All Persona Titles"
         else:
             raise ValueError(f"Unsupported category: {category}")
@@ -191,7 +190,11 @@ class MatrixBuilder:
         all_matrices.update(business_matrices)
 
         # Build individual complementarity matrices
-        for category in ["experience", "role", "persona"]:
+        for category in [
+            FeatureNames.EXPERIENCE.value,
+            "role",
+            FeatureNames.PERSONA.value,
+        ]:
             logger.info(f"Building {category} matrix...")
             all_matrices[category] = await self.build_complementarity_matrix(
                 csv_path, category
@@ -240,17 +243,17 @@ class MatrixBuilder:
         """Get complete profile vector for a person in a category"""
         person_data = self._person_tags_cache.get(person_idx, {})
 
-        if category == "role":
+        if category == FeatureNames.ROLE.value:
             return person_data.get("role_profile", "")
-        elif category == "experience":
+        elif category == FeatureNames.EXPERIENCE.value:
             return person_data.get("experience_profile", "")
-        elif category == "persona":
+        elif category == FeatureNames.PERSONA.value:
             return person_data.get("persona_profile", "")
-        elif category == "industry":
+        elif category == FeatureNames.INDUSTRY.value:
             return person_data.get("industry_profile", "")
-        elif category == "market":
+        elif category == FeatureNames.MARKET.value:
             return person_data.get("market_profile", "")
-        elif category == "offering":
+        elif category == FeatureNames.OFFERING.value:
             return person_data.get("offering_profile", "")
         else:
             return ""
@@ -283,17 +286,17 @@ class MatrixBuilder:
                     row.get("Company Offering - Value Proposition", "")
                 ).strip(),
                 # Business tag lists (for backward compatibility)
-                "industry": business["industry"],
-                "market": business["market"],
-                "offering": business["offering"],
+                FeatureNames.INDUSTRY.value: business[FeatureNames.INDUSTRY.value],
+                FeatureNames.MARKET.value: business[FeatureNames.MARKET.value],
+                FeatureNames.OFFERING.value: business[FeatureNames.OFFERING.value],
                 # Keep individual tags for backward compatibility if needed
                 "roles": tag_extractor.extract_tags(
                     str(row.get("Professional Identity - Role Specification", "")),
                     "role",
                 ),
-                "experience": tag_extractor.extract_tags(
+                FeatureNames.EXPERIENCE.value: tag_extractor.extract_tags(
                     str(row.get("Professional Identity - Experience Level", "")),
-                    "experience",
+                    FeatureNames.EXPERIENCE.value,
                 ),
                 "personas": tag_extractor.extract_tags(
                     str(row.get("All Persona Titles", "")), "personas"
@@ -307,28 +310,28 @@ class MatrixBuilder:
 
         role_comp = self._get_complementarity_score(person_i, person_j, category="role")
         exp_comp = self._get_complementarity_score(
-            person_i, person_j, category="experience"
+            person_i, person_j, category=FeatureNames.EXPERIENCE.value
         )
         persona_comp = self._get_complementarity_score(
-            person_i, person_j, category="persona"
+            person_i, person_j, category=FeatureNames.PERSONA.value
         )
         industry_comp = self._get_complementarity_score(
-            person_i, person_j, category="industry"
+            person_i, person_j, category=FeatureNames.INDUSTRY.value
         )
         market_comp = self._get_complementarity_score(
-            person_i, person_j, category="market"
+            person_i, person_j, category=FeatureNames.MARKET.value
         )
         offering_comp = self._get_complementarity_score(
-            person_i, person_j, category="offering"
+            person_i, person_j, category=FeatureNames.OFFERING.value
         )
 
         return {
             "role": role_comp,
-            "experience": exp_comp,
-            "persona": persona_comp,
-            "industry": industry_comp,
-            "market": market_comp,
-            "offering": offering_comp,
+            FeatureNames.EXPERIENCE.value: exp_comp,
+            FeatureNames.PERSONA.value: persona_comp,
+            FeatureNames.INDUSTRY.value: industry_comp,
+            FeatureNames.MARKET.value: market_comp,
+            FeatureNames.OFFERING.value: offering_comp,
         }
 
     def clear_cache(self) -> None:

@@ -50,6 +50,7 @@ Graph Building → Dense Subgraph Discovery → Subgraph Analysis → Frontend R
 - **Async:** Concurrent processing for matrix building and AI scoring operations
 - **Generalized Mean:** Leverages power mean inequality to optimally combine similarity and complementarity scores,
   ensuring mathematically sound edge weight aggregation that preserves feature relationships
+- **Supporting OpenAI embedding as well as FastEmbed through design by interface**
 
 #### **🔄 System Flow Details**
 
@@ -247,7 +248,7 @@ docker compose -f docker-compose.prod.yml up -d
 
 ## 🔮 Future Roadmap
 
-- Swap ChatGPT as an embedder and judge with simpler and faster models
+- Swap ChatGPT as a judge with simpler and faster models
 - Extend the list of features
 - Add human feedbacks to the system (RLHF)
 - Use GPU for matrices and graph operations instead of CPU

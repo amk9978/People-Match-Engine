@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from sklearn.cluster import AgglomerativeClustering
 from sklearn.metrics.pairwise import cosine_similarity
 
+import settings
 from services.preprocessing.embedding_service import embedding_service
 from services.preprocessing.tag_extractor import tag_extractor
 from services.redis.redis_cache import RedisEmbeddingCache
@@ -54,10 +55,10 @@ Return ONLY the selected tag, nothing else."""
 
         try:
             response = await embedding_service.openai_client.chat.completions.create(
-                model="gpt-4o-mini",
+                model=settings.LLM_MODEL,
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0,
-                max_tokens=50,
+                temperature=settings.TEMPERATURE,
+                max_tokens=settings.MAX_TOKENS_DEDUP,
             )
 
             selected_tag = response.choices[0].message.content.strip()

@@ -18,6 +18,7 @@ from services.graph.scoring.similarity_calculator import SimilarityCalculator
 from services.preprocessing.csv_loader import CSVLoader
 from services.preprocessing.embedding_builder import EmbeddingBuilder
 from services.redis.redis_cache import RedisEmbeddingCache
+from shared.shared import DEFAULT_FEATURE_WEIGHTS, OPTIMIZED_FEATURE_WEIGHTS
 
 logger = logging.getLogger(__name__)
 
@@ -30,22 +31,8 @@ class GraphBuilder:
         self.min_density = min_density or settings.MIN_DENSITY
         self.graph = None
         self.df = None
-        self.tuned_w_s = {
-            "role": 1.0,
-            "experience": 1.0,
-            "industry": 1.0,
-            "market": 1.0,
-            "offering": 1.0,
-            "persona": 1.0,
-        }
-        self.tuned_w_c = {
-            "role": 1.0,
-            "experience": 1.5,
-            "industry": 1.1,
-            "market": 1.1,
-            "offering": 1.2,
-            "persona": 0.9,
-        }
+        self.tuned_w_s = DEFAULT_FEATURE_WEIGHTS.copy()
+        self.tuned_w_c = OPTIMIZED_FEATURE_WEIGHTS.copy()
 
         self.csv_loader = CSVLoader(csv_path)
         self.embedding_builder = EmbeddingBuilder()

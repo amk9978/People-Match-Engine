@@ -10,6 +10,8 @@ import numpy as np
 import pandas as pd
 from sklearn.manifold import MDS
 
+from shared.shared import FEATURE_COLUMN_MAPPING, FEATURES
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
@@ -254,14 +256,7 @@ class SubgraphAnalyzer:
             }
 
         node_list = list(nodes)
-        feature_categories = [
-            "role",
-            "experience",
-            "persona",
-            "industry",
-            "market",
-            "offering",
-        ]
+        feature_categories = FEATURES
 
         complementarity_patterns = {}
 
@@ -1352,14 +1347,7 @@ class SubgraphAnalyzer:
         # Create mapping from node IDs to DataFrame positions for embedding indexing
         node_to_pos = {node_id: pos for pos, node_id in enumerate(df.index)}
         node_list = list(nodes)
-        feature_categories = [
-            "role",
-            "experience",
-            "persona",
-            "industry",
-            "market",
-            "offering",
-        ]
+        feature_categories = FEATURES
         hybrid_patterns = {}
 
         for category in feature_categories:
@@ -1454,14 +1442,7 @@ class SubgraphAnalyzer:
 
         node_list = list(nodes)
         subgraph = graph.subgraph(nodes)
-        feature_categories = [
-            "role",
-            "experience",
-            "persona",
-            "industry",
-            "market",
-            "offering",
-        ]
+        feature_categories = FEATURES
 
         feature_contributions = {}
         total_subgraph_weight = sum(
@@ -1580,14 +1561,7 @@ class SubgraphAnalyzer:
         node_list = list(nodes)
         member_profiles = []
 
-        feature_columns = {
-            "role": "Professional Identity - Role Specification",
-            "experience": "Professional Identity - Experience Level",
-            "persona": "All Persona Titles",
-            "industry": "Company Identity - Industry Classification",
-            "market": "Company Market - Market Traction",
-            "offering": "Company Offering - Value Proposition",
-        }
+        feature_columns = FEATURE_COLUMN_MAPPING
 
         for node_idx in node_list:
             person_data = df.loc[node_idx]
@@ -1802,14 +1776,7 @@ class SubgraphAnalyzer:
                 "matrix_champions": [],
             }
 
-        feature_categories = [
-            "role",
-            "experience",
-            "persona",
-            "industry",
-            "market",
-            "offering",
-        ]
+        feature_categories = FEATURES
 
         matrix_selections = self._determine_optimal_matrix_selection(
             tuned_w_s, tuned_w_c

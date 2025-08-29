@@ -8,8 +8,7 @@ from typing import Dict, Tuple
 import openai
 
 import settings
-
-FEATURES = ["role", "experience", "industry", "market", "offering", "persona"]
+from shared.shared import DEFAULT_FEATURE_WEIGHTS, FEATURES, OPTIMIZED_FEATURE_WEIGHTS
 
 logger = logging.getLogger(__name__)
 
@@ -93,22 +92,8 @@ def tune_parameters(prompt: str = None) -> Tuple[Dict[str, float], Dict[str, flo
     Falls back to default weights if ChatGPT fails.
     """
     # Default weights (fallback values)
-    default_w_s = {
-        "role": 1.0,
-        "experience": 1.0,
-        "industry": 1.0,
-        "market": 1.0,
-        "offering": 1.0,
-        "persona": 1.0,
-    }
-    default_w_c = {
-        "role": 1.0,
-        "experience": 1.5,
-        "industry": 1.1,
-        "market": 1.1,
-        "offering": 1.2,
-        "persona": 0.9,
-    }
+    default_w_s = DEFAULT_FEATURE_WEIGHTS
+    default_w_c = OPTIMIZED_FEATURE_WEIGHTS
 
     if not prompt or not prompt.strip():
         return default_w_s, default_w_c
@@ -169,10 +154,10 @@ REQUIREMENTS:
         )
 
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=settings.LLM_MODEL,
             messages=[{"role": "user", "content": chatgpt_prompt}],
-            temperature=0,
-            max_tokens=500,
+            temperature=settings.TEMPERATURE,
+            max_tokens=settings.MAX_TOKENS_TUNING,
         )
 
         result_text = response.choices[0].message.content.strip()

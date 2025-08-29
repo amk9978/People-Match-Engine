@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
+import settings
 from models.file import DatasetDiff, File, FileStats, FileVersion
 from services.redis.redis_cache import RedisCache
 
@@ -23,7 +24,7 @@ class FileService:
         self.file_version_prefix = "file_version:"
         self.user_files_prefix = "user_files:"
         self.files_set_key = "files_set"
-        self.data_directory = "/home/ryan/PycharmProjects/match_engine/data"
+        self.data_directory = settings.DATA_DIR
 
         os.makedirs(self.data_directory, exist_ok=True)
 

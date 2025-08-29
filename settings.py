@@ -23,10 +23,18 @@ OPENAI_TIMEOUT = get_envs("OPENAI_TIMEOUT", cast=float, default=120.0)
 EMBEDDING_BATCH_DELAY = get_envs("EMBEDDING_BATCH_DELAY", cast=float, default=2.0)
 ANALYZER_BATCH_DELAY = get_envs("ANALYZER_BATCH_DELAY", cast=float, default=2.0)
 OPENAI_API_KEY = get_envs("OPENAI_API_KEY", cast=str, default="")
+LLM_MODEL = get_envs("LLM_MODEL", cast=str, default="gpt-4o-mini")
+MAX_TOKENS = get_envs("MAX_TOKENS", cast=int, default=6000)
+MAX_TOKENS_DEDUP = get_envs("MAX_TOKENS_DEDUP", cast=int, default=50)
+MAX_TOKENS_TUNING = get_envs("MAX_TOKENS_TUNING", cast=int, default=500)
+TEMPERATURE = get_envs("TEMPERATURE", cast=int, default=0)
 
 REDIS_URL = get_envs("REDIS_URL", cast=str, default="redis://localhost:6379/0")
 
-MIN_DENSITY = get_envs("MIN_DENSITY", cast=float, default="0.1")
+MIN_DENSITY = get_envs("MIN_DENSITY", cast=float, default=0.1)
+FALLBACK_VALUE = get_envs("FALLBACK_VALUE", cast=float, default=0.5)
+
+DATA_DIR = get_envs("DATA_DIR", cast=str, default="./data")
 
 SENTRY_DSN = get_envs("SENTRY_DSN", cast=str, default="")
 SENTRY_ENVIRONMENT = get_envs("SENTRY_ENVIRONMENT", cast=str, default="production")
@@ -42,6 +50,7 @@ if SENTRY_DSN:
         dsn=SENTRY_DSN,
         send_default_pii=True,
         environment=SENTRY_ENVIRONMENT,
+        auto_enabling_integrations=False,
         integrations=[sentry_logging],
         traces_sample_rate=get_envs(
             "SENTRY_TRACES_SAMPLE_RATE", cast=float, default=1.0

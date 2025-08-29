@@ -123,7 +123,7 @@ class EmbeddingBuilder:
                         cached_values[value] = [0.0] * 384
 
                 logger.info(
-                    f"Text cache hits: {cache_hits}, API calls needed: {len(uncached_values)}"
+                    f"Text cache hits: {cache_hits}, requests needed: {len(uncached_values)}"
                 )
 
                 value_embeddings = cached_values.copy()

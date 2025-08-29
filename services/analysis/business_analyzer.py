@@ -3,6 +3,7 @@ import json
 import logging
 import re
 import sys
+from textwrap import dedent
 from typing import Dict, List, Union, overload
 
 from openai import AsyncOpenAI
@@ -16,6 +17,7 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger(__name__)
+FALLBACK_VALUE = settings.FALLBACK_VALUE
 
 
 class BusinessAnalyzer:
@@ -85,15 +87,14 @@ class BusinessAnalyzer:
                 # Fill in missing tags with default score
                 for tag in comparison_tags:
                     if tag not in scores:
-                        scores[tag] = 0.5
+                        scores[tag] = FALLBACK_VALUE
                 return scores
 
         except Exception:
             pass
 
-        # Final fallback: Return moderate scores for all
-        logger.info(f"  ⚠️ Could not parse ChatGPT response, using fallback scores")
-        return {tag: 0.5 for tag in comparison_tags}
+        logger.info("Could not parse ChatGPT response, using fallback scores")
+        return {tag: FALLBACK_VALUE for tag in comparison_tags}
 
     def _parse_batch_chatgpt_response(
         self,
@@ -130,10 +131,10 @@ class BusinessAnalyzer:
             pass
 
         logger.info(
-            f"Could not parse batch ChatGPT response, using fallback scores. Result: {result_text}"
+            f"Could not parse batch ChatGPT response, using fallback scores. Result: {result_text[:100]}"
         )
         return {
-            target: {comp: 0.5 for comp in comparison_profiles}
+            target: {comp: FALLBACK_VALUE for comp in comparison_profiles}
             for target in target_profiles
         }
 
@@ -146,47 +147,55 @@ class BusinessAnalyzer:
         )
         comparison_list = "\n".join([f"- {profile}" for profile in comparison_profiles])
 
-        prompt = f"""You are analyzing complementarity between multiple {category} target profiles and comparison profiles.
-
-TARGET PROFILES:
-{targets_list}
-
-COMPARISON PROFILES:
-{comparison_list}
-
-For EACH target profile (1-{len(batch_targets)}), rate its complementarity (0.0-1.0) against ALL comparison profiles.
-
-Scoring criteria (0.0 to 1.0):
-- 0.9-1.0: Highly complementary profiles that create significant strategic value together
-- 0.7-0.8: Strong complementarity with clear synergistic potential
-- 0.5-0.6: Moderate complementarity with some collaboration opportunities
-- 0.3-0.4: Limited complementarity, different but not particularly synergistic
-- 0.1-0.2: Minimal complementarity, too similar or conflicting
-- 0.0: No strategic value, identical or directly competing profiles
-
-Return a JSON object where each target profile maps to its scores:
-{{
-  "Target Profile 1 Name": {{"Comparison 1": 0.8, "Comparison 2": 0.6}},
-  "Target Profile 2 Name": {{"Comparison 1": 0.4, "Comparison 2": 0.9}}
-}}
-
-CRITICAL: Return ONLY valid JSON, no explanations. Use exact target profile names as keys."""
+        prompt = dedent(
+            f"""You are analyzing complementarity between multiple {category} target profiles and comparison profiles.
+                            TARGET PROFILES:
+                            {targets_list}
+                            
+                            COMPARISON PROFILES:
+                            {comparison_list}
+                            
+                            For EACH target profile (1-{len(batch_targets)}), rate its complementarity (0.0-1.0) against
+                             ALL comparison profiles.
+                            
+                            Scoring criteria (0.0 to 1.0):
+                            - 0.9-1.0: Highly complementary profiles that create significant strategic value together
+                            - 0.7-0.8: Strong complementarity with clear synergistic potential
+                            - 0.5-0.6: Moderate complementarity with some collaboration opportunities
+                            - 0.3-0.4: Limited complementarity, different but not particularly synergistic
+                            - 0.1-0.2: Minimal complementarity, too similar or conflicting
+                            - 0.0: No strategic value, identical or directly competing profiles
+                            
+                            Return a JSON object where each target profile maps to its scores:
+                            {{
+                              "Target Profile 1 Name": {{"Comparison 1": 0.8, "Comparison 2": 0.6}},
+                              "Target Profile 2 Name": {{"Comparison 1": 0.4, "Comparison 2": 0.9}}
+                            }}
+                            
+                            CRITICAL: Return ONLY valid JSON, no explanations, no ```json or anything added to the json
+                            answer. Use exact target profile names as keys."""
+        )
 
         try:
-            response = await self.openai_client.chat.completions.create(
-                model="gpt-4o-mini",
+            raw = await self.openai_client.chat.completions.with_raw_response.create(
+                model=settings.LLM_MODEL,
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0,
-                max_tokens=6000,
+                temperature=settings.TEMPERATURE,
+                max_tokens=settings.MAX_TOKENS,
             )
 
-            if hasattr(response, "_headers"):
-                headers = response._headers
-                remaining_requests = headers.get("x-ratelimit-remaining-requests")
-                remaining_tokens = headers.get("x-ratelimit-remaining-tokens")
-                logger.info(
-                    f"Rate limit status - Requests remaining: {remaining_requests}, Tokens remaining: {remaining_tokens}"
-                )
+            headers = raw.headers
+            remaining_requests = headers.get("x-ratelimit-remaining-requests")
+            remaining_tokens = headers.get("x-ratelimit-remaining-tokens")
+            reset_requests = headers.get("x-ratelimit-reset-requests")
+            reset_tokens = headers.get("x-ratelimit-reset-tokens")
+            processing_ms = headers.get("openai-processing-ms")
+            request_id = headers.get("x-request-id")
+            logger.info(
+                f"single batch response received. {remaining_requests} remaining requests, {remaining_tokens}, reset_requests: {reset_requests}, reset_tokens: {reset_tokens}, processing_ms: {processing_ms}, request_id: {request_id}"
+            )
+
+            response = await raw.parse()
 
             result_text = response.choices[0].message.content.strip()
             batch_results = self._parse_batch_chatgpt_response(
@@ -207,7 +216,7 @@ CRITICAL: Return ONLY valid JSON, no explanations. Use exact target profile name
             individual_results = {}
             for target in batch_targets:
                 individual_results[target] = {
-                    profile: 0.5 for profile in comparison_profiles
+                    profile: FALLBACK_VALUE for profile in comparison_profiles
                 }
 
             return individual_results
@@ -285,7 +294,9 @@ CRITICAL: Return ONLY valid JSON, no explanations. Use exact target profile name
             if isinstance(batch_result, Exception):
                 logger.error(f"  ❌ Batch task failed: {batch_result}")
                 for target in batch_targets:
-                    results[target] = {profile: 0.5 for profile in comparison_profiles}
+                    results[target] = {
+                        profile: FALLBACK_VALUE for profile in comparison_profiles
+                    }
             else:
                 # Cache individual results and merge
                 batch_cache_results = {}
@@ -296,7 +307,7 @@ CRITICAL: Return ONLY valid JSON, no explanations. Use exact target profile name
                         logger.info(f"  ✓ Got batch result for {target[:50]}...")
                     else:
                         results[target] = {
-                            profile: 0.5 for profile in comparison_profiles
+                            profile: FALLBACK_VALUE for profile in comparison_profiles
                         }
                         logger.info(
                             f"  ⚠️ No result for {target[:50]}..., using fallback"

@@ -3,16 +3,16 @@ import logging
 import os
 from datetime import datetime
 from io import StringIO
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 
-import numpy as np
 import pandas as pd
 
 from models.job import JobConfiguration, JobResult, JobStatus, JobType
 from services.graph.graph_builder import GraphBuilder
 from services.job_service import JobService
-from services.preprocessing.embedding_builder import EmbeddingBuilder
 from services.redis.redis_cache import RedisEmbeddingCache
+from shared.shared import BUSINESS_FEATURES, FEATURE_COLUMN_MAPPING, FEATURES
+from shared.util import sanitize_metrics, serialize_numpy
 
 logger = logging.getLogger(__name__)
 
@@ -23,31 +23,6 @@ class AnalysisService:
     def __init__(self):
         self.results_cache = RedisEmbeddingCache(key_prefix="job_results")
         self.job_service = JobService()
-
-    def _serialize_numpy(self, obj):
-        """Convert numpy objects and other non-JSON types to JSON serializable types"""
-        if isinstance(obj, np.ndarray):
-            return obj.tolist()
-        elif isinstance(obj, np.integer):
-            return int(obj)
-        elif isinstance(obj, np.floating):
-            value = float(obj)
-            if np.isnan(value) or np.isinf(value):
-                logger.warning(f"Removed non-serializable numpy float: {value}")
-                return None
-            return value
-        elif isinstance(obj, (int, float)):
-            if isinstance(obj, float) and (np.isnan(obj) or np.isinf(obj)):
-                logger.warning(f"Removed non-serializable float: {obj}")
-                return None
-            return obj
-        elif isinstance(obj, (set, frozenset)):
-            return list(obj)
-        elif isinstance(obj, dict):
-            return {k: self._serialize_numpy(v) for k, v in obj.items()}
-        elif isinstance(obj, list):
-            return [self._serialize_numpy(item) for item in obj]
-        return obj
 
     def _store_file_mapping(self, file_id: str, filename: str):
         """Legacy method - file mappings now handled by FileService"""
@@ -92,69 +67,6 @@ class AnalysisService:
         except Exception as e:
             logger.info(f"Warning: Could not store job result for {job_id}: {e}")
 
-    def get_job_result(self, job_id: str) -> Optional[Dict]:
-        """Get stored job result from Redis"""
-        try:
-            import json
-
-            cache_key = f"result_{job_id}"
-            result_str = self.results_cache.get(cache_key)
-            return json.loads(result_str) if result_str else None
-        except Exception as e:
-            logger.info(f"Warning: Could not retrieve job result for {job_id}: {e}")
-            return None
-
-    def _store_user_job(self, user_id: str, job_id: str, job_data: Dict):
-        """Store job for user in Redis"""
-        try:
-            import json
-
-            job_key = f"user_job_{user_id}_{job_id}"
-            job_data_serialized = {**job_data}
-            job_data_serialized["timestamp"] = job_data["timestamp"].isoformat()
-            self.results_cache.set(job_key, json.dumps(job_data_serialized))
-
-            user_jobs_key = f"user_jobs_{user_id}"
-            existing_jobs = self.results_cache.get(user_jobs_key)
-            job_list = json.loads(existing_jobs) if existing_jobs else []
-
-            if job_id not in job_list:
-                job_list.append(job_id)
-                self.results_cache.set(user_jobs_key, json.dumps(job_list))
-        except Exception as e:
-            logger.info(
-                f"Warning: Could not store user job {job_id} for user {user_id}: {e}"
-            )
-
-    def get_jobs_by_user(self, user_id: str) -> List[Dict]:
-        """Get all jobs for a specific user"""
-        try:
-            import json
-
-            user_jobs_key = f"user_jobs_{user_id}"
-            job_list_str = self.results_cache.get(user_jobs_key)
-
-            if not job_list_str:
-                return []
-
-            job_ids = json.loads(job_list_str)
-            jobs = []
-
-            for job_id in job_ids:
-                job_key = f"user_job_{user_id}_{job_id}"
-                job_data_str = self.results_cache.get(job_key)
-                if job_data_str:
-                    job_data = json.loads(job_data_str)
-                    job_data["job_id"] = job_id
-                    jobs.append(job_data)
-
-            jobs.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
-            return jobs
-
-        except Exception as e:
-            logger.info(f"Warning: Could not retrieve jobs for user {user_id}: {e}")
-            return []
-
     async def _update_job_and_notify(
         self,
         job_id: str,
@@ -189,7 +101,7 @@ class AnalysisService:
                 if progress:
                     notification_data["progress"] = progress
                 if result:
-                    notification_data["result"] = self._serialize_numpy(result)
+                    notification_data["result"] = serialize_numpy(result)
                 if error:
                     notification_data["error"] = error
 
@@ -218,24 +130,12 @@ class AnalysisService:
                 pass
         return 0.0
 
-    def _sanitize_metrics(self, metrics: Dict[str, float]) -> Dict[str, float]:
-        """Remove NaN, inf, and other non-JSON-serializable float values from metrics"""
-        sanitized = {}
-        for key, value in metrics.items():
-            if isinstance(value, (int, float)) and not (
-                np.isnan(value) or np.isinf(value)
-            ):
-                sanitized[key] = float(value)
-            else:
-                logger.warning(f"Removed non-serializable metric {key}: {value}")
-        return sanitized
-
     def _store_job_result_via_service(self, job_id: str, result: Dict):
         """Store job result via JobService"""
-        metrics = self._sanitize_metrics(result.get("metrics", {}))
+        metrics = sanitize_metrics(result.get("metrics", {}))
         job_result = JobResult(
             job_id=job_id,
-            result_data=self._serialize_numpy(result),
+            result_data=serialize_numpy(result),
             metrics=metrics,
             artifacts=result.get("artifacts", []),
             execution_time=result.get("execution_time", 0.0),
@@ -329,14 +229,7 @@ class AnalysisService:
         """Validate complementarity matrices - keep valid rows, remove invalid ones"""
         try:
             new_profiles = self._extract_current_profiles(new_df)
-            matrix_types = [
-                "persona",
-                "experience",
-                "role",
-                "industry",
-                "market",
-                "offering",
-            ]
+            matrix_types = FEATURES
 
             for matrix_type in matrix_types:
                 self._validate_single_matrix(
@@ -349,23 +242,8 @@ class AnalysisService:
 
     def _extract_current_profiles(self, df: pd.DataFrame) -> dict:
         """Extract current profile vectors from the new dataset"""
-        profiles = {
-            "persona": set(),
-            "experience": set(),
-            "role": set(),
-            "industry": set(),
-            "market": set(),
-            "offering": set(),
-        }
-
-        column_mapping = {
-            "role": "Professional Identity - Role Specification",
-            "experience": "Professional Identity - Experience Level",
-            "persona": "All Persona Titles",
-            "industry": "Company Identity - Industry Classification",
-            "market": "Company Market - Market Traction",
-            "offering": "Company Offering - Value Proposition",
-        }
+        profiles = {feature: set() for feature in FEATURES}
+        column_mapping = FEATURE_COLUMN_MAPPING
 
         for category, column in column_mapping.items():
             if column in df.columns:
@@ -383,7 +261,7 @@ class AnalysisService:
         """Validate a single complementarity matrix, removing invalid rows"""
         try:
             matrix_cache = RedisEmbeddingCache()
-            if matrix_type in ["industry", "market", "offering"]:
+            if matrix_type in BUSINESS_FEATURES:
                 cache_key = f"causal_graph_complete_{job_id}"
             else:
                 cache_key = f"{matrix_type}_complementarity_matrix_complete_{job_id}"
@@ -397,7 +275,7 @@ class AnalysisService:
 
             matrix_data = json.loads(cached_data)
 
-            if matrix_type in ["industry", "market", "offering"]:
+            if matrix_type in BUSINESS_FEATURES:
                 category_data = matrix_data.get(matrix_type, {})
                 valid_profiles = self._filter_valid_profiles(
                     category_data, current_profiles
@@ -549,7 +427,7 @@ class AnalysisService:
             if os.path.exists(csv_path):
                 os.remove(csv_path)
 
-            serialized_result = self._serialize_numpy(result)
+            serialized_result = serialize_numpy(result)
 
             await self._update_job_and_notify(
                 job_id,

@@ -4,6 +4,8 @@ from typing import Dict, Optional
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 
+from shared.shared import FEATURES
+
 logger = logging.getLogger(__name__)
 
 
@@ -19,14 +21,7 @@ class SimilarityCalculator:
         """Precompute similarity matrices once for all features"""
         logger.info("⚡ Precomputing similarity matrices...")
 
-        feature_names = [
-            "role",
-            "experience",
-            "personas",
-            "industry",
-            "market",
-            "offering",
-        ]
+        feature_names = FEATURES + ["personas"]
 
         for feature_name in feature_names:
             if feature_name in feature_embeddings:
