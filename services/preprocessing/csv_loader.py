@@ -39,7 +39,6 @@ class CSVLoader:
             "Person Name",
             "Person Title",
             "Person Company",
-            "LinkedIn URL",
             "Professional Identity - Role Specification",
             "Professional Identity - Experience Level",
             "Company Identity - Industry Classification",

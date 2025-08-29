@@ -195,7 +195,7 @@ class BusinessAnalyzer:
                 f"single batch response received. {remaining_requests} remaining requests, {remaining_tokens}, reset_requests: {reset_requests}, reset_tokens: {reset_tokens}, processing_ms: {processing_ms}, request_id: {request_id}"
             )
 
-            response = await raw.parse()
+            response = raw.parse()
 
             result_text = response.choices[0].message.content.strip()
             batch_results = self._parse_batch_chatgpt_response(

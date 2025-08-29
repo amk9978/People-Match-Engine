@@ -82,7 +82,8 @@ async def analyze_csv(
 
     Parameters:
     - min_density: Minimum density threshold for subgraph extraction
-    - prompt: Optional user intent to tune hyperparameters (e.g., "I want to hire for my startup", "I need peer networking", "I want business partnerships")
+    - prompt: Optional user intent to tune hyperparameters (e.g., "I want to hire for my startup", "I need peer
+        networking", "I want business partnerships")
     - job_id: Optional job identifier to reuse existing job (for reruns)
     - file_id: Optional file identifier for cache isolation (auto-generated if not provided)
     - X-User-ID: User identifier in header
