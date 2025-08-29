@@ -1,11 +1,12 @@
 import hashlib
 import json
 import logging
-import os
 from typing import Dict, List, Optional, Set
 
 import redis
 from dotenv import load_dotenv
+
+import settings
 
 load_dotenv()
 
@@ -16,7 +17,7 @@ class RedisCache:
     """General-purpose Redis cache service"""
 
     def __init__(self, redis_url: str = None):
-        self.redis_url = redis_url or os.getenv("REDIS_URL", "redis://localhost:6379/0")
+        self.redis_url = redis_url or settings.REDIS_URL
         self.redis_client = None
         self._connect()
 
@@ -168,7 +169,7 @@ class RedisCache:
 class RedisEmbeddingCache:
     def __init__(self, redis_url: str = None, key_prefix: str = "embeddings"):
         """Initialize Redis cache for embeddings"""
-        self.redis_url = redis_url or os.getenv("REDIS_URL", "redis://localhost:6379/0")
+        self.redis_url = redis_url or settings.REDIS_URL
         self.key_prefix = key_prefix
         self.redis_client = None
         self._connect()

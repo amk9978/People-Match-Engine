@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import os
 from typing import List
 
 import numpy as np
@@ -8,6 +7,7 @@ import sentry_sdk
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
 
+import settings
 from services.redis.redis_cache import RedisEmbeddingCache
 
 load_dotenv()
@@ -18,9 +18,9 @@ class EmbeddingService:
     """Shared service for OpenAI embedding retrieval with Redis caching"""
 
     def __init__(self):
-        self.openai_client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        self.openai_client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
         self.cache = RedisEmbeddingCache()
-        self.batch_delay = float(os.getenv("EMBEDDING_BATCH_DELAY", "1.0"))
+        self.batch_delay = settings.EMBEDDING_BATCH_DELAY
 
     async def get_embedding(self, text: str) -> List[float]:
         """Get embedding with caching, returns List[float] for compatibility"""

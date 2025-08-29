@@ -7,6 +7,8 @@ from typing import Dict, Tuple
 
 import openai
 
+import settings
+
 FEATURES = ["role", "experience", "industry", "market", "offering", "persona"]
 
 logger = logging.getLogger(__name__)
@@ -112,7 +114,7 @@ def tune_parameters(prompt: str = None) -> Tuple[Dict[str, float], Dict[str, flo
         return default_w_s, default_w_c
 
     try:
-        client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        client = openai.OpenAI(api_key=settings.OPENAI_API_KEY)
 
         chatgpt_prompt = dedent(
             f"""

@@ -10,6 +10,7 @@ import networkx as nx
 import numpy as np
 import pandas as pd
 
+import settings
 from services.analysis.matrix_builder import MatrixBuilder
 from services.analysis.subgraph_analyzer import SubgraphAnalyzer
 from services.graph.scoring.generalized_mean import combine_edge_weight, tune_parameters
@@ -26,7 +27,7 @@ class GraphBuilder:
 
     def __init__(self, csv_path: str, min_density: float = None):
         self.csv_path = csv_path
-        self.min_density = min_density or float(os.getenv("min_density", 0.1))
+        self.min_density = min_density or settings.MIN_DENSITY
         self.graph = None
         self.df = None
         self.tuned_w_s = {

@@ -1,13 +1,13 @@
 import asyncio
 import json
 import logging
-import os
 import re
 import sys
 from typing import Dict, List, Union, overload
 
 from openai import AsyncOpenAI
 
+import settings
 from services.redis.app_cache_service import app_cache_service
 
 logging.basicConfig(
@@ -23,10 +23,10 @@ class BusinessAnalyzer:
 
     def __init__(self):
         self.openai_client = AsyncOpenAI(
-            api_key=os.getenv("OPENAI_API_KEY"), timeout=30.0
+            api_key=settings.OPENAI_API_KEY, timeout=settings.OPENAI_TIMEOUT
         )
         self.cache = app_cache_service
-        self.batch_delay = float(os.getenv("ANALYZER_BATCH_DELAY", "1.0"))
+        self.batch_delay = settings.ANALYZER_BATCH_DELAY
 
     def _parse_chatgpt_response(
         self, result_text: str, comparison_tags: List[str]

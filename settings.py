@@ -19,6 +19,15 @@ def get_envs(env_key: str, cast, default=None) -> str | int | float | bool | Any
     return config(env_key, cast=cast, default=default)
 
 
+OPENAI_TIMEOUT = get_envs("OPENAI_TIMEOUT", cast=float, default=120.0)
+EMBEDDING_BATCH_DELAY = get_envs("EMBEDDING_BATCH_DELAY", cast=float, default=2.0)
+ANALYZER_BATCH_DELAY = get_envs("ANALYZER_BATCH_DELAY", cast=float, default=2.0)
+OPENAI_API_KEY = get_envs("OPENAI_API_KEY", cast=str, default="")
+
+REDIS_URL = get_envs("REDIS_URL", cast=str, default="redis://localhost:6379/0")
+
+MIN_DENSITY = get_envs("MIN_DENSITY", cast=float, default="0.1")
+
 SENTRY_DSN = get_envs("SENTRY_DSN", cast=str, default="")
 SENTRY_ENVIRONMENT = get_envs("SENTRY_ENVIRONMENT", cast=str, default="production")
 SENTRY_LOG_LEVEL = get_envs("SENTRY_LOG_LEVEL", cast=str, default="INFO")

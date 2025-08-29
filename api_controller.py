@@ -140,7 +140,7 @@ async def get_job_status(job_id: str):
     return JobStatus(
         job_id=job_id,
         status=job.status.value,
-        progress=job.progress,
+        progress=str(job.progress) if job.progress is not None else None,
         result=job.result.result_data if job.result else None,
         error=job.error_message,
         timestamp=job.created_at,
