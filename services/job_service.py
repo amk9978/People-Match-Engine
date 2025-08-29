@@ -2,7 +2,7 @@ import json
 import logging
 import uuid
 from datetime import datetime, timedelta
-from typing import List, Optional, Dict
+from typing import Dict, List, Optional
 
 from models.job import Job, JobConfiguration, JobResult, JobStats, JobStatus, JobType
 from services.redis.redis_cache import RedisCache
@@ -23,15 +23,15 @@ class JobService:
         self.active_jobs_key = "active_jobs"
 
     def create_job(
-            self,
-            user_id: str,
-            file_id: str,
-            job_type: JobType = JobType.ANALYSIS,
-            title: Optional[str] = None,
-            description: Optional[str] = None,
-            configuration: Optional[JobConfiguration] = None,
-            job_id: Optional[str] = None,
-            **kwargs,
+        self,
+        user_id: str,
+        file_id: str,
+        job_type: JobType = JobType.ANALYSIS,
+        title: Optional[str] = None,
+        description: Optional[str] = None,
+        configuration: Optional[JobConfiguration] = None,
+        job_id: Optional[str] = None,
+        **kwargs,
     ) -> Job:
         """Create a new job"""
         job_id = job_id or str(uuid.uuid4())
@@ -84,7 +84,7 @@ class JobService:
         return self._save_job(job)
 
     def update_job_status(
-            self, job_id: str, status: JobStatus, message: Optional[str] = None
+        self, job_id: str, status: JobStatus, message: Optional[str] = None
     ) -> bool:
         """Update job status"""
         job = self.get_job(job_id)
@@ -136,10 +136,10 @@ class JobService:
             return None
 
     def get_user_jobs(
-            self,
-            user_id: str,
-            status_filter: Optional[JobStatus] = None,
-            limit: Optional[int] = None,
+        self,
+        user_id: str,
+        status_filter: Optional[JobStatus] = None,
+        limit: Optional[int] = None,
     ) -> List[Job]:
         """Get jobs for a user"""
         jobs_key = f"{self.user_jobs_prefix}{user_id}"
@@ -162,7 +162,7 @@ class JobService:
         return jobs
 
     def get_file_jobs(
-            self, file_id: str, status_filter: Optional[JobStatus] = None
+        self, file_id: str, status_filter: Optional[JobStatus] = None
     ) -> List[Job]:
         """Get jobs for a file"""
         jobs_key = f"{self.file_jobs_prefix}{file_id}"
@@ -198,7 +198,7 @@ class JobService:
         return jobs
 
     def get_jobs_by_status(
-            self, status: JobStatus, limit: Optional[int] = None
+        self, status: JobStatus, limit: Optional[int] = None
     ) -> List[Job]:
         """Get jobs by status"""
         all_job_ids = self.cache.smembers(self.jobs_set_key)
@@ -327,7 +327,7 @@ class JobService:
             return False
 
     def list_jobs_with_details(
-            self, status: Optional[str] = None, limit: Optional[int] = 50
+        self, status: Optional[str] = None, limit: Optional[int] = 50
     ) -> Dict:
         """List all jobs with optional status filter and detailed formatting"""
         try:
@@ -366,7 +366,7 @@ class JobService:
             }
 
     def get_user_jobs_with_details(
-            self, user_id: str, file_service, status: Optional[str] = None
+        self, user_id: str, file_service, status: Optional[str] = None
     ) -> Dict:
         """Get all jobs for a specific user with detailed formatting"""
         try:

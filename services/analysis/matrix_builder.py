@@ -26,10 +26,12 @@ class MatrixBuilder:
         self._person_tags_cache = {}
 
     async def build_causal_relationship_graph(
-            self, csv_path: str
+        self, csv_path: str
     ) -> Dict[str, Dict[str, Dict[str, float]]]:
         """Build complete business complementarity graph using row-based caching"""
-        logger.info("🔨 Building business causal relationship graph with row-based caching...")
+        logger.info(
+            "🔨 Building business causal relationship graph with row-based caching..."
+        )
 
         # Extract complete business profile vectors for each category
         business_profiles = self._extract_business_profile_vectors(csv_path)
@@ -37,14 +39,18 @@ class MatrixBuilder:
 
         # Process each business category
         for category, profiles in business_profiles.items():
-            logger.info(f"\n🏢 Processing {category} category ({len(profiles)} profile vectors)...")
+            logger.info(
+                f"\n🏢 Processing {category} category ({len(profiles)} profile vectors)..."
+            )
             causal_graph[category] = {}
 
             profiles_list = sorted(list(profiles))
             other_profiles = [p for p in profiles_list]  # All profiles for comparison
 
             # Use batch processing with AppCacheService handling caching
-            logger.info(f"  🚀 Using batch processing for {len(profiles_list)} {category} profiles")
+            logger.info(
+                f"  🚀 Using batch processing for {len(profiles_list)} {category} profiles"
+            )
             batch_results = await self.business_analyzer.get_profile_complementarity(
                 profiles_list, other_profiles, category
             )
@@ -58,10 +64,14 @@ class MatrixBuilder:
                         profile_scores[target_profile] = 0.0  # Self-comparison
 
                     causal_graph[category][target_profile] = profile_scores
-                    logger.info(f"  ✓ {target_profile}: got {len(profile_scores)} relationships")
+                    logger.info(
+                        f"  ✓ {target_profile}: got {len(profile_scores)} relationships"
+                    )
                 else:
                     # Fallback for missing profiles
-                    other_profiles_only = [p for p in profiles_list if p != target_profile]
+                    other_profiles_only = [
+                        p for p in profiles_list if p != target_profile
+                    ]
                     causal_graph[category][target_profile] = {
                         profile: 0.5 for profile in other_profiles_only
                     }
@@ -97,10 +107,12 @@ class MatrixBuilder:
         return business_profiles
 
     async def build_complementarity_matrix(
-            self, csv_path: str, category: str
+        self, csv_path: str, category: str
     ) -> Dict[str, Dict[str, float]]:
         """Build complementarity matrix for complete profile vectors using row-based caching"""
-        logger.info(f"🔨 Building {category} complementarity matrix with row-based caching...")
+        logger.info(
+            f"🔨 Building {category} complementarity matrix with row-based caching..."
+        )
 
         # Extract complete profile vectors from dataset
         profile_vectors = self._extract_profile_vectors(csv_path, category)
@@ -110,7 +122,9 @@ class MatrixBuilder:
         matrix = {}
 
         # Use batch processing with AppCacheService handling caching
-        logger.info(f"  🚀 Using batch processing for {len(profile_list)} {category} profiles")
+        logger.info(
+            f"  🚀 Using batch processing for {len(profile_list)} {category} profiles"
+        )
         batch_results = await self.business_analyzer.get_profile_complementarity(
             profile_list, profile_list, category
         )
@@ -124,7 +138,9 @@ class MatrixBuilder:
                     profile_scores[target_profile] = 0.0  # Self-comparison
 
                 matrix[target_profile] = profile_scores
-                logger.info(f"  ✓ {target_profile}: got {len(profile_scores)} relationships")
+                logger.info(
+                    f"  ✓ {target_profile}: got {len(profile_scores)} relationships"
+                )
             else:
                 # Fallback for missing profiles
                 other_profiles_only = [p for p in profile_list if p != target_profile]
@@ -159,9 +175,13 @@ class MatrixBuilder:
 
         return profile_vectors
 
-    async def build_all_complementarity_matrices(self, csv_path: str) -> Dict[str, Dict[str, Dict[str, float]]]:
+    async def build_all_complementarity_matrices(
+        self, csv_path: str
+    ) -> Dict[str, Dict[str, Dict[str, float]]]:
         """Build all complementarity matrices using row-based caching via AppCacheService"""
-        logger.info("🔨 Building all complementarity matrices with row-based caching...")
+        logger.info(
+            "🔨 Building all complementarity matrices with row-based caching..."
+        )
 
         all_matrices = {}
 
@@ -173,12 +193,16 @@ class MatrixBuilder:
         # Build individual complementarity matrices
         for category in ["experience", "role", "persona"]:
             logger.info(f"Building {category} matrix...")
-            all_matrices[category] = await self.build_complementarity_matrix(csv_path, category)
+            all_matrices[category] = await self.build_complementarity_matrix(
+                csv_path, category
+            )
 
         logger.info("✅ All complementarity matrices built with row-based caching")
         return all_matrices
 
-    def load_matrices_into_memory(self, matrices: Dict[str, Dict[str, Dict[str, float]]]) -> None:
+    def load_matrices_into_memory(
+        self, matrices: Dict[str, Dict[str, Dict[str, float]]]
+    ) -> None:
         """Load pre-built matrices into memory for fast access during graph building"""
         logger.info("Loading matrices into memory for fast access...")
         self._matrices.clear()
@@ -191,7 +215,7 @@ class MatrixBuilder:
         logger.info("✅ All matrices loaded into memory")
 
     def _get_complementarity_score(
-            self, person_i: int, person_j: int, category: str
+        self, person_i: int, person_j: int, category: str
     ) -> float:
         """Get complementarity score between two complete profile vectors from cached matrices"""
 
@@ -206,7 +230,7 @@ class MatrixBuilder:
         if person_i_profile in matrix and person_j_profile in matrix[person_i_profile]:
             return matrix[person_i_profile][person_j_profile]
         elif (
-                person_j_profile in matrix and person_i_profile in matrix[person_j_profile]
+            person_j_profile in matrix and person_i_profile in matrix[person_j_profile]
         ):
             return matrix[person_j_profile][person_i_profile]
 
@@ -277,7 +301,7 @@ class MatrixBuilder:
             }
 
     def get_all_complementarities(
-            self, person_i: int, person_j: int
+        self, person_i: int, person_j: int
     ) -> Dict[str, float]:
         """Get all complementarity scores between two people"""
 

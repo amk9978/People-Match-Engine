@@ -1,6 +1,6 @@
 import json
 from datetime import datetime
-from typing import List, Optional, Dict
+from typing import Dict, List, Optional
 
 from models.user import User, UserStats
 from services.redis.redis_cache import RedisCache

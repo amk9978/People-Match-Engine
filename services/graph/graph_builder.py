@@ -189,9 +189,7 @@ class GraphBuilder:
         else:
             self.save_embeddings_to_cache(feature_embeddings, job_id)
 
-        graph = await self.create_graph_optimized(
-            feature_embeddings, user_prompt
-        )
+        graph = await self.create_graph_optimized(feature_embeddings, user_prompt)
 
         self.save_graph_to_cache(job_id)
 
@@ -208,7 +206,9 @@ class GraphBuilder:
             self.graph.add_node(
                 idx, name=row["Person Name"], company=row["Person Company"]
             )
-        matrices = await self.matrix_builder.build_all_complementarity_matrices(self.csv_path)
+        matrices = await self.matrix_builder.build_all_complementarity_matrices(
+            self.csv_path
+        )
         self.matrix_builder.load_matrices_into_memory(matrices)
         self.similarity_calc.precompute_similarity_matrices(feature_embeddings)
         await self.matrix_builder.precompute_person_tags(

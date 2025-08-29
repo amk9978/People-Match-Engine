@@ -30,7 +30,9 @@ class SimilarityCalculator:
 
         for feature_name in feature_names:
             if feature_name in feature_embeddings:
-                self._cached_matrices[feature_name] = cosine_similarity(feature_embeddings[feature_name])
+                self._cached_matrices[feature_name] = cosine_similarity(
+                    feature_embeddings[feature_name]
+                )
 
     def get_similarity_score(
         self, feature_name: str, person_i: int, person_j: int

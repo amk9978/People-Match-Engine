@@ -8,7 +8,7 @@ from typing import Dict, List, Optional
 import numpy as np
 import pandas as pd
 
-from models.job import JobStatus, JobResult, JobConfiguration, JobType
+from models.job import JobConfiguration, JobResult, JobStatus, JobType
 from services.graph.graph_builder import GraphBuilder
 from services.job_service import JobService
 from services.preprocessing.embedding_builder import EmbeddingBuilder
@@ -156,13 +156,13 @@ class AnalysisService:
             return []
 
     async def _update_job_and_notify(
-            self,
-            job_id: str,
-            status: str,
-            progress: str = None,
-            notification_service=None,
-            result: Dict = None,
-            error: str = None,
+        self,
+        job_id: str,
+        status: str,
+        progress: str = None,
+        notification_service=None,
+        result: Dict = None,
+        error: str = None,
     ):
         """Update job status via JobService and broadcast notification"""
         try:
@@ -247,21 +247,25 @@ class AnalysisService:
         try:
             # CRITICAL: Clear job result cache first - prevents stale results
             self._clear_job_result_caches(job_id)
-            
+
             self._clear_specific_graph_caches(job_id)
 
             try:
                 new_df = pd.read_csv(new_csv_path)
                 self._validate_matrix_caches(job_id, new_df)
             except Exception as e:
-                logger.warning(f"Could not validate matrix caches, falling back to partial clear: {e}")
+                logger.warning(
+                    f"Could not validate matrix caches, falling back to partial clear: {e}"
+                )
                 self._clear_specific_matrix_caches(job_id)
 
             logger.info(f"Smart cache invalidation completed", extra={"job_id": job_id})
 
         except Exception as e:
-            logger.warning(f"Warning: Smart cache invalidation failed for job, using safe fallback",
-                           extra={"job_id": job_id, "e": e})
+            logger.warning(
+                f"Warning: Smart cache invalidation failed for job, using safe fallback",
+                extra={"job_id": job_id, "e": e},
+            )
             try:
                 self._clear_job_result_caches(job_id)
                 logger.info("✅ Applied safe fallback cache clearing")
@@ -290,7 +294,7 @@ class AnalysisService:
                 f"causal_graph_complete_{job_id}",
                 f"feature_embeddings_{job_id}",
                 f"graph_data_{job_id}",
-                f"graph_structure_{job_id}"
+                f"graph_structure_{job_id}",
             ]
 
             cleared_count = 0
@@ -311,7 +315,7 @@ class AnalysisService:
                 f"causal_graph_complete_{job_id}",
                 f"persona_complementarity_matrix_complete_{job_id}",
                 f"experience_complementarity_matrix_complete_{job_id}",
-                f"role_complementarity_matrix_complete_{job_id}"
+                f"role_complementarity_matrix_complete_{job_id}",
             ]
 
             cleared_count = 0
@@ -325,10 +329,19 @@ class AnalysisService:
         """Validate complementarity matrices - keep valid rows, remove invalid ones"""
         try:
             new_profiles = self._extract_current_profiles(new_df)
-            matrix_types = ["persona", "experience", "role", "industry", "market", "offering"]
+            matrix_types = [
+                "persona",
+                "experience",
+                "role",
+                "industry",
+                "market",
+                "offering",
+            ]
 
             for matrix_type in matrix_types:
-                self._validate_single_matrix(job_id, matrix_type, new_profiles.get(matrix_type, set()))
+                self._validate_single_matrix(
+                    job_id, matrix_type, new_profiles.get(matrix_type, set())
+                )
 
         except Exception as e:
             logger.warning(f"Matrix validation failed: {e}")
@@ -342,7 +355,7 @@ class AnalysisService:
             "role": set(),
             "industry": set(),
             "market": set(),
-            "offering": set()
+            "offering": set(),
         }
 
         column_mapping = {
@@ -351,7 +364,7 @@ class AnalysisService:
             "persona": "All Persona Titles",
             "industry": "Company Identity - Industry Classification",
             "market": "Company Market - Market Traction",
-            "offering": "Company Offering - Value Proposition"
+            "offering": "Company Offering - Value Proposition",
         }
 
         for category, column in column_mapping.items():
@@ -364,7 +377,9 @@ class AnalysisService:
 
         return profiles
 
-    def _validate_single_matrix(self, job_id: str, matrix_type: str, current_profiles: set):
+    def _validate_single_matrix(
+        self, job_id: str, matrix_type: str, current_profiles: set
+    ):
         """Validate a single complementarity matrix, removing invalid rows"""
         try:
             matrix_cache = RedisEmbeddingCache()
@@ -375,30 +390,42 @@ class AnalysisService:
 
             cached_data = matrix_cache.get(cache_key)
             if not cached_data:
-                logger.info(f"No cached matrix found for {matrix_type}, skipping validation")
+                logger.info(
+                    f"No cached matrix found for {matrix_type}, skipping validation"
+                )
                 return
 
             matrix_data = json.loads(cached_data)
 
             if matrix_type in ["industry", "market", "offering"]:
                 category_data = matrix_data.get(matrix_type, {})
-                valid_profiles = self._filter_valid_profiles(category_data, current_profiles)
+                valid_profiles = self._filter_valid_profiles(
+                    category_data, current_profiles
+                )
                 if len(valid_profiles) != len(category_data):
                     matrix_data[matrix_type] = valid_profiles
                     matrix_cache.set(cache_key, json.dumps(matrix_data))
                     removed = len(category_data) - len(valid_profiles)
-                    logger.info(f"🔄 Updated {matrix_type} matrix: removed {removed} invalid profiles")
+                    logger.info(
+                        f"🔄 Updated {matrix_type} matrix: removed {removed} invalid profiles"
+                    )
             else:
-                valid_profiles = self._filter_valid_profiles(matrix_data, current_profiles)
+                valid_profiles = self._filter_valid_profiles(
+                    matrix_data, current_profiles
+                )
                 if len(valid_profiles) != len(matrix_data):
                     matrix_cache.set(cache_key, json.dumps(valid_profiles))
                     removed = len(matrix_data) - len(valid_profiles)
-                    logger.info(f"🔄 Updated {matrix_type} matrix: removed {removed} invalid profiles")
+                    logger.info(
+                        f"🔄 Updated {matrix_type} matrix: removed {removed} invalid profiles"
+                    )
 
         except Exception as e:
             logger.warning(f"Failed to validate {matrix_type} matrix: {e}")
             matrix_cache.delete(cache_key)
-            logger.info(f"🗑️ Removed entire {matrix_type} matrix due to validation failure")
+            logger.info(
+                f"🗑️ Removed entire {matrix_type} matrix due to validation failure"
+            )
 
     def _filter_valid_profiles(self, matrix_data: dict, current_profiles: set) -> dict:
         """Filter matrix data to keep only profiles that still exist in the dataset"""
@@ -417,18 +444,22 @@ class AnalysisService:
         return valid_data
 
     async def run_analysis(
-            self,
-            job_id: str,
-            csv_path: str,
-            notification_service,
-            min_density: float = None,
-            prompt: Optional[str] = None,
+        self,
+        job_id: str,
+        csv_path: str,
+        notification_service,
+        min_density: float = None,
+        prompt: Optional[str] = None,
     ):
         """Run graph analysis with progress notifications"""
         try:
             if os.path.exists(csv_path):
                 temp_df = pd.read_csv(csv_path)
-                sample_names = list(temp_df["Person Name"].head(3)) if "Person Name" in temp_df.columns else []
+                sample_names = (
+                    list(temp_df["Person Name"].head(3))
+                    if "Person Name" in temp_df.columns
+                    else []
+                )
 
             await self._update_job_and_notify(
                 job_id,
@@ -508,14 +539,17 @@ class AnalysisService:
                 "csv_path": csv_path,
                 "dataset_rows": len(graph_builder.df),
                 "job_id": job_id,
-                "file_id": file_id if 'file_id' in locals() else "unknown",
-                "analysis_timestamp": datetime.now().isoformat()
+                "file_id": file_id if "file_id" in locals() else "unknown",
+                "analysis_timestamp": datetime.now().isoformat(),
             }
 
             # Log key dataset info for debugging
-            if hasattr(graph_builder, 'df') and not graph_builder.df.empty:
-                sample_names = list(
-                    graph_builder.df["Person Name"].head(3)) if "Person Name" in graph_builder.df.columns else []
+            if hasattr(graph_builder, "df") and not graph_builder.df.empty:
+                sample_names = (
+                    list(graph_builder.df["Person Name"].head(3))
+                    if "Person Name" in graph_builder.df.columns
+                    else []
+                )
 
             if os.path.exists(csv_path):
                 os.remove(csv_path)
@@ -539,16 +573,16 @@ class AnalysisService:
                 os.remove(csv_path)
 
     async def process_file_upload_and_analysis(
-            self,
-            file,
-            user_id: str,
-            min_density: Optional[float] = None,
-            prompt: Optional[str] = None,
-            job_id: Optional[str] = None,
-            file_service=None,
-            user_service=None,
-            job_service=None,
-            notification_service=None,
+        self,
+        file,
+        user_id: str,
+        min_density: Optional[float] = None,
+        prompt: Optional[str] = None,
+        job_id: Optional[str] = None,
+        file_service=None,
+        user_service=None,
+        job_service=None,
+        notification_service=None,
     ) -> Dict:
         """Complete file upload and analysis orchestration"""
         try:
@@ -578,7 +612,7 @@ class AnalysisService:
                 existing_job = job_service.get_job(job_id)
                 if existing_job:
                     self._clear_job_result_caches(job_id)
-                    
+
                     existing_job.file_id = file_obj.file_id
                     existing_job.configuration = config
                     existing_job.title = f"Analysis of {file.filename}"
@@ -615,16 +649,16 @@ class AnalysisService:
             raise ValueError(f"Failed to process file upload: {str(e)}")
 
     async def run_analysis_with_tracking(
-            self,
-            job_id: str,
-            temp_path: str,
-            user_id: str,
-            filename: str,
-            min_density: Optional[float] = None,
-            prompt: Optional[str] = None,
-            job_service=None,
-            user_service=None,
-            notification_service=None,
+        self,
+        job_id: str,
+        temp_path: str,
+        user_id: str,
+        filename: str,
+        min_density: Optional[float] = None,
+        prompt: Optional[str] = None,
+        job_service=None,
+        user_service=None,
+        notification_service=None,
     ):
         """Run analysis with proper status tracking and error handling"""
         from models.job import JobStatus as JobStatusEnum

@@ -65,34 +65,46 @@ class EmbeddingBuilder:
         feature_embeddings = {}
 
         for feature_name, column_name in feature_columns.items():
-            logger.info(f"\nProcessing {feature_name} ({column_name}) with row-based caching...")
+            logger.info(
+                f"\nProcessing {feature_name} ({column_name}) with row-based caching..."
+            )
 
             # Check which people already have cached embeddings for this feature
-            cache_status = self.cache.get_dataset_embedding_cache_status(df, feature_name)
-            cached_embeddings = cache_status['cached_embeddings']
-            uncached_indices = cache_status['uncached_indices']
+            cache_status = self.cache.get_dataset_embedding_cache_status(
+                df, feature_name
+            )
+            cached_embeddings = cache_status["cached_embeddings"]
+            uncached_indices = cache_status["uncached_indices"]
 
-            logger.info(f"  Found {len(cached_embeddings)} cached embeddings, {len(uncached_indices)} need computing")
+            logger.info(
+                f"  Found {len(cached_embeddings)} cached embeddings, {len(uncached_indices)} need computing"
+            )
 
             # Prepare person embeddings array
             person_feature_embeddings = [None] * len(df)
-            
+
             # Use cached embeddings
             for idx, embedding in cached_embeddings.items():
                 person_feature_embeddings[idx] = embedding
 
             # Compute embeddings for uncached people
             if uncached_indices:
-                logger.info(f"  Computing embeddings for {len(uncached_indices)} uncached people...")
-                
+                logger.info(
+                    f"  Computing embeddings for {len(uncached_indices)} uncached people..."
+                )
+
                 # Collect unique values from uncached people only
                 all_unique_values = set()
                 for idx in uncached_indices:
                     row = df.iloc[idx]
-                    values = await self.extract_and_deduplicate_tags(row[column_name], feature_name)
+                    values = await self.extract_and_deduplicate_tags(
+                        row[column_name], feature_name
+                    )
                     all_unique_values.update(values)
 
-                logger.info(f"  Found {len(all_unique_values)} unique values from uncached people")
+                logger.info(
+                    f"  Found {len(all_unique_values)} unique values from uncached people"
+                )
 
                 # Get text embeddings (this uses existing text-level caching)
                 cached_values = {}
@@ -110,7 +122,9 @@ class EmbeddingBuilder:
                     else:
                         cached_values[value] = [0.0] * 1536
 
-                logger.info(f"    Text cache hits: {cache_hits}, API calls needed: {len(uncached_values)}")
+                logger.info(
+                    f"    Text cache hits: {cache_hits}, API calls needed: {len(uncached_values)}"
+                )
 
                 value_embeddings = cached_values.copy()
 
@@ -120,7 +134,9 @@ class EmbeddingBuilder:
                     for value in uncached_values:
                         tasks.append(self.get_cached_embedding(value))
 
-                    embeddings_results = await asyncio.gather(*tasks, return_exceptions=True)
+                    embeddings_results = await asyncio.gather(
+                        *tasks, return_exceptions=True
+                    )
 
                     for value, embedding in zip(uncached_values, embeddings_results):
                         if isinstance(embedding, Exception):
@@ -133,11 +149,15 @@ class EmbeddingBuilder:
                 new_person_embeddings = {}
                 for idx in uncached_indices:
                     row = df.iloc[idx]
-                    values = await self.extract_and_deduplicate_tags(row[column_name], feature_name)
+                    values = await self.extract_and_deduplicate_tags(
+                        row[column_name], feature_name
+                    )
 
                     if values:
                         person_value_embeddings = [
-                            value_embeddings[val] for val in values if val in value_embeddings
+                            value_embeddings[val]
+                            for val in values
+                            if val in value_embeddings
                         ]
 
                         if person_value_embeddings:
@@ -155,18 +175,26 @@ class EmbeddingBuilder:
                     new_person_embeddings[idx] = person_embedding.tolist()
 
                 # Cache the new person embeddings
-                self.cache.cache_dataset_embeddings(df, feature_name, new_person_embeddings)
-                logger.info(f"  Cached {len(new_person_embeddings)} new person embeddings")
+                self.cache.cache_dataset_embeddings(
+                    df, feature_name, new_person_embeddings
+                )
+                logger.info(
+                    f"  Cached {len(new_person_embeddings)} new person embeddings"
+                )
 
             # Fill any remaining None values (shouldn't happen)
             for i in range(len(person_feature_embeddings)):
                 if person_feature_embeddings[i] is None:
                     person_feature_embeddings[i] = [0.0] * 1536
-                    logger.warning(f"  Warning: No embedding for person at index {i}, using fallback")
+                    logger.warning(
+                        f"  Warning: No embedding for person at index {i}, using fallback"
+                    )
 
             # Convert to numpy array
             feature_embeddings[feature_name] = np.array(person_feature_embeddings)
-            logger.info(f"  ✅ Created {feature_embeddings[feature_name].shape[1]}D embeddings for {len(person_feature_embeddings)} people")
+            logger.info(
+                f"  ✅ Created {feature_embeddings[feature_name].shape[1]}D embeddings for {len(person_feature_embeddings)} people"
+            )
 
         cache_info = self.cache.get_cache_stats()
         logger.info(f"Redis cache status: {cache_info}")

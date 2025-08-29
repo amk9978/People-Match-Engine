@@ -27,7 +27,9 @@ class EmbeddingService:
             return cached_embedding
 
         try:
-            with sentry_sdk.start_transaction(op="ai.embed", name="openai_embedding", sampled=False):
+            with sentry_sdk.start_transaction(
+                op="ai.embed", name="openai_embedding", sampled=False
+            ):
                 response = await self.openai_client.embeddings.create(
                     input=text, model="text-embedding-3-small"
                 )
@@ -80,7 +82,9 @@ class EmbeddingService:
                 )
 
                 # TRUE BATCHING: Single API call for entire batch
-                with sentry_sdk.start_transaction(op="ai.embed", name="openai_batch_embedding", sampled=False):
+                with sentry_sdk.start_transaction(
+                    op="ai.embed", name="openai_batch_embedding", sampled=False
+                ):
                     response = await self.openai_client.embeddings.create(
                         input=batch_texts,  # Send all texts at once
                         model="text-embedding-3-small",
@@ -120,7 +124,11 @@ class EmbeddingService:
                 for i, text in enumerate(batch_texts):
                     original_index = batch_indices[i]
                     try:
-                        with sentry_sdk.start_transaction(op="ai.embed", name="openai_fallback_embedding", sampled=False):
+                        with sentry_sdk.start_transaction(
+                            op="ai.embed",
+                            name="openai_fallback_embedding",
+                            sampled=False,
+                        ):
                             response = await self.openai_client.embeddings.create(
                                 input=text, model="text-embedding-3-small"
                             )

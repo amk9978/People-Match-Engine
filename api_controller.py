@@ -71,12 +71,12 @@ async def root():
 
 @app.post("/analyze", response_model=AnalysisResponse)
 async def analyze_csv(
-        background_tasks: BackgroundTasks,
-        file: UploadFile = File(...),
-        min_density: Optional[float] = Form(None),
-        prompt: Optional[str] = Form(None),
-        job_id: Optional[str] = Form(None),
-        user_id: str = Header(..., alias="X-User-ID"),
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    min_density: Optional[float] = Form(None),
+    prompt: Optional[str] = Form(None),
+    job_id: Optional[str] = Form(None),
+    user_id: str = Header(..., alias="X-User-ID"),
 ):
     """Upload CSV file and start graph analysis with optional hyperparameter tuning
 
@@ -166,8 +166,9 @@ async def delete_job(job_id: str):
 def _sanitize_nan_values(obj):
     """Recursively sanitize NaN and inf values from nested data structures"""
     import math
+
     import numpy as np
-    
+
     if isinstance(obj, dict):
         return {k: _sanitize_nan_values(v) for k, v in obj.items()}
     elif isinstance(obj, list):
@@ -263,12 +264,12 @@ async def get_file_info(file_id: str, user_id: str = Header(..., alias="X-User-I
 
 @app.get("/files/{file_id}/preview")
 async def get_file_preview(
-        file_id: str,
-        user_id: str = Header(..., alias="X-User-ID"),
-        version_id: Optional[str] = Query(
-            None, description="Version ID to preview (default: current)"
-        ),
-        limit: int = Query(10, description="Number of rows to preview"),
+    file_id: str,
+    user_id: str = Header(..., alias="X-User-ID"),
+    version_id: Optional[str] = Query(
+        None, description="Version ID to preview (default: current)"
+    ),
+    limit: int = Query(10, description="Number of rows to preview"),
 ):
     """Get preview of file data with sample rows"""
     result = file_service.get_file_preview_with_validation(
@@ -281,7 +282,7 @@ async def get_file_preview(
 
 @app.get("/jobs")
 async def list_jobs(
-        status: Optional[str] = Query(None), limit: Optional[int] = Query(50)
+    status: Optional[str] = Query(None), limit: Optional[int] = Query(50)
 ):
     """List all jobs with optional status filter"""
     result = job_service.list_jobs_with_details(status, limit)
