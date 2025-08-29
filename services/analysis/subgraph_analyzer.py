@@ -1,5 +1,6 @@
 import itertools
 import logging
+import sys
 from collections import defaultdict
 from typing import Dict, List, Optional, Set
 
@@ -9,6 +10,11 @@ import numpy as np
 import pandas as pd
 from sklearn.manifold import MDS
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)],
+)
 logger = logging.getLogger(__name__)
 
 
@@ -32,9 +38,19 @@ class SubgraphAnalyzer:
         if not nodes:
             return {"size": 0, "density": 0.0, "members": []}
 
+        # Create mapping from node IDs to DataFrame positions for embedding indexing
+        node_to_pos = {node_id: pos for pos, node_id in enumerate(df.index)}
+
+        valid_nodes = {node for node in nodes if node in df.index}
+        invalid_nodes = [node for node in nodes if node not in df.index]
+        
+        if invalid_nodes:
+            logger.warning(f"Filtering out invalid nodes not in DataFrame: {invalid_nodes}")
+
+        
         members = []
-        for node in nodes:
-            person_data = df.iloc[node]
+        for node in valid_nodes:
+            person_data = df.loc[node]
             members.append(
                 {
                     "name": person_data["Person Name"],
@@ -42,8 +58,8 @@ class SubgraphAnalyzer:
                 }
             )
 
-        subgraph = graph.subgraph(nodes)
-        density = self.calculate_subgraph_density(nodes, graph)
+        subgraph = graph.subgraph(valid_nodes)
+        density = self.calculate_subgraph_density(valid_nodes, graph)
 
         edges_with_weights = subgraph.edges(data=True)
         if edges_with_weights:
@@ -56,16 +72,19 @@ class SubgraphAnalyzer:
 
         edges_data = []
         for u, v, data in edges_with_weights:
-            source_name = df.iloc[u]["Person Name"]
-            target_name = df.iloc[v]["Person Name"]
-            edges_data.append(
-                {
-                    "source": source_name,
-                    "target": target_name,
-                    "weight": data.get("weight", 0.0),
-                    "score": data.get("weight", 0.0),
-                }
-            )
+            if u in df.index and v in df.index:
+                source_name = df.loc[u]["Person Name"]
+                target_name = df.loc[v]["Person Name"]
+                edges_data.append(
+                    {
+                        "source": source_name,
+                        "target": target_name,
+                        "weight": data.get("weight", 0.0),
+                        "score": data.get("weight", 0.0),
+                    }
+                )
+            else:
+                logger.warning(f"Skipping edge ({u}, {v}) - nodes not in DataFrame")
 
         hybrid_insights = {}
         complementarity_insights = {}
@@ -74,26 +93,26 @@ class SubgraphAnalyzer:
 
         if matrix_builder and tuned_w_s and tuned_w_c:
             complementarity_insights = self.analyze_complementarity_centroids(
-                nodes, matrix_builder, tuned_w_s, tuned_w_c
+                valid_nodes, matrix_builder, tuned_w_s, tuned_w_c
             )
 
             hybrid_insights = self.analyze_hybrid_centroids(
-                nodes, feature_embeddings, matrix_builder, tuned_w_s, tuned_w_c
+                valid_nodes, feature_embeddings, matrix_builder, tuned_w_s, tuned_w_c, df
             )
 
             feature_importance_analysis = self.analyze_feature_importance(
-                nodes, graph, matrix_builder, tuned_w_s, tuned_w_c
+                valid_nodes, graph, matrix_builder, tuned_w_s, tuned_w_c
             )
 
             dataset_values_analysis = self.analyze_dataset_values(
-                nodes, df, matrix_builder
+                valid_nodes, df, matrix_builder
             )
 
-        weighted_communities = self.detect_weighted_communities(nodes, graph)
+        weighted_communities = self.detect_weighted_communities(valid_nodes, graph)
 
-        max_cycle = self.find_maximum_weight_cycle(nodes, graph)
+        max_cycle = self.find_maximum_weight_cycle(valid_nodes, graph)
 
-        layout_coords = self.compute_stress_layout(nodes, graph)
+        layout_coords = self.compute_stress_layout(valid_nodes, graph)
 
         replication_recommendations = {}
         if matrix_builder and tuned_w_s and tuned_w_c and feature_embeddings:
@@ -102,15 +121,15 @@ class SubgraphAnalyzer:
             )
 
         result = {
-            "nodes": nodes,
-            "size": len(nodes),
+                "nodes": valid_nodes,
+                "size": len(valid_nodes),
             "density": density,
             "avg_edge_weight": avg_weight,
             "members": members,
             "edges": len(edges_with_weights),
             "edges_data": edges_data,
             "centroid_insights": self.analyze_subgraph_centroids(
-                nodes, feature_embeddings
+                valid_nodes, feature_embeddings, df
             ),
             "complementarity_insights": complementarity_insights,
             "hybrid_insights": hybrid_insights,
@@ -122,9 +141,8 @@ class SubgraphAnalyzer:
             "replication_recommendations": replication_recommendations,
         }
 
-        legacy_subgroups = self.analyze_subgroups(nodes, graph, df)
+        legacy_subgroups = self.analyze_subgroups(valid_nodes, graph, df)
         result.update(legacy_subgroups)
-
         return result
 
     def calculate_subgraph_density(self, nodes: Set[int], graph: nx.Graph) -> float:
@@ -144,17 +162,21 @@ class SubgraphAnalyzer:
         return total_weight / max_possible_edges if max_possible_edges > 0 else 0.0
 
     def analyze_subgraph_centroids(
-        self, nodes: Set[int], feature_embeddings: Dict[str, np.ndarray]
+        self, nodes: Set[int], feature_embeddings: Dict[str, np.ndarray], df: pd.DataFrame
     ) -> Dict:
         """Analyze centroids to identify which feature values make the subgraph dense"""
+        # Create mapping from node IDs to DataFrame positions for embedding indexing
+        node_to_pos = {node_id: pos for pos, node_id in enumerate(df.index)}
+        
         centroids = {}
 
         for feature_name, embeddings in feature_embeddings.items():
-            subgraph_embeddings = embeddings[list(nodes)]
+            valid_positions = [node_to_pos[node] for node in nodes if node in node_to_pos]
+            subgraph_embeddings = embeddings[valid_positions]
             centroid = np.mean(subgraph_embeddings, axis=0)
 
             closest_to_centroid = self._find_nodes_closest_to_centroid(
-                nodes, embeddings, centroid, feature_name
+                nodes, embeddings, centroid, feature_name, node_to_pos
             )
 
             centroids[feature_name] = {
@@ -171,6 +193,7 @@ class SubgraphAnalyzer:
         embeddings: np.ndarray,
         centroid: np.ndarray,
         feature_name: str,
+        node_to_pos: Dict[int, int],
         top_k: int = 5,
     ) -> List[Dict]:
         """Find nodes within subgraph that are closest to centroid - these drive density"""
@@ -178,7 +201,8 @@ class SubgraphAnalyzer:
             return []
 
         node_list = list(nodes)
-        subgraph_embeddings = embeddings[node_list]
+        valid_positions = [node_to_pos[node] for node in node_list if node in node_to_pos]
+        subgraph_embeddings = embeddings[valid_positions]
 
         centroid_norm = np.linalg.norm(centroid)
         if centroid_norm == 0:
@@ -346,7 +370,7 @@ class SubgraphAnalyzer:
 
                 members = []
                 for node in community:
-                    person_data = df.iloc[node]
+                    person_data = df.loc[node]
                     members.append(
                         {
                             "name": person_data["Person Name"],
@@ -1303,6 +1327,7 @@ class SubgraphAnalyzer:
         matrix_builder,
         tuned_w_s: Dict[str, float],
         tuned_w_c: Dict[str, float],
+        df: pd.DataFrame,
     ) -> Dict:
         """Combine embedding similarity and complementarity analysis"""
         if not nodes or len(nodes) < 2:
@@ -1311,6 +1336,8 @@ class SubgraphAnalyzer:
                 "summary": "Insufficient nodes for hybrid analysis",
             }
 
+        # Create mapping from node IDs to DataFrame positions for embedding indexing
+        node_to_pos = {node_id: pos for pos, node_id in enumerate(df.index)}
         node_list = list(nodes)
         feature_categories = [
             "role",
@@ -1326,7 +1353,8 @@ class SubgraphAnalyzer:
             if category not in feature_embeddings:
                 continue
 
-            category_embeddings = feature_embeddings[category][node_list]
+            valid_positions = [node_to_pos[node] for node in node_list if node in node_to_pos]
+            category_embeddings = feature_embeddings[category][valid_positions]
 
             embedding_similarities = []
             complementarity_scores = []
@@ -1547,7 +1575,7 @@ class SubgraphAnalyzer:
         }
 
         for node_idx in node_list:
-            person_data = df.iloc[node_idx]
+            person_data = df.loc[node_idx]
             profile = {
                 "node_id": int(node_idx),
                 "name": person_data["Person Name"],
@@ -1885,15 +1913,14 @@ class SubgraphAnalyzer:
     ) -> List[Dict]:
         """Find nodes with highest average weighted connections in a specific feature"""
 
-        num_people = len(df)
         node_scores = []
 
-        for node_idx in range(num_people):
+        for node_idx in df.index:
             # Calculate average weighted connection strength for this node
             total_weighted_score = 0.0
             connection_count = 0
 
-            for other_idx in range(num_people):
+            for other_idx in df.index:
                 if node_idx == other_idx:
                     continue
 
@@ -1908,8 +1935,12 @@ class SubgraphAnalyzer:
                     # Use similarity from embeddings
                     if feature in feature_embeddings:
                         embeddings = feature_embeddings[feature]
-                        emb_i = embeddings[node_idx]
-                        emb_j = embeddings[other_idx]
+                        node_to_pos = {node_id: pos for pos, node_id in enumerate(df.index)}
+                        emb_i = embeddings[node_to_pos[node_idx]] if node_idx in node_to_pos else None
+                        emb_j = embeddings[node_to_pos[other_idx]] if other_idx in node_to_pos else None
+                        
+                        if emb_i is None or emb_j is None:
+                            continue
 
                         norm_i = np.linalg.norm(emb_i)
                         norm_j = np.linalg.norm(emb_j)
@@ -1927,7 +1958,7 @@ class SubgraphAnalyzer:
             avg_weighted_score = total_weighted_score / max(connection_count, 1)
 
             # Get person details
-            person_data = df.iloc[node_idx]
+            person_data = df.loc[node_idx]
 
             node_scores.append(
                 {
@@ -2091,14 +2122,13 @@ class SubgraphAnalyzer:
         """
         Find the node with the highest weighted average connections in a specific matrix.
         """
-        num_people = len(df)
         node_scores = []
 
-        for node_idx in range(num_people):
+        for node_idx in df.index:
             total_weighted_score = 0.0
             connection_count = 0
 
-            for other_idx in range(num_people):
+            for other_idx in df.index:
                 if node_idx == other_idx:
                     continue
 
@@ -2112,8 +2142,12 @@ class SubgraphAnalyzer:
                     # Use similarity from embeddings
                     if feature in feature_embeddings:
                         embeddings = feature_embeddings[feature]
-                        emb_i = embeddings[node_idx]
-                        emb_j = embeddings[other_idx]
+                        node_to_pos = {node_id: pos for pos, node_id in enumerate(df.index)}
+                        emb_i = embeddings[node_to_pos[node_idx]] if node_idx in node_to_pos else None
+                        emb_j = embeddings[node_to_pos[other_idx]] if other_idx in node_to_pos else None
+
+                        if emb_i is None or emb_j is None:
+                            continue
 
                         norm_i = np.linalg.norm(emb_i)
                         norm_j = np.linalg.norm(emb_j)
@@ -2130,7 +2164,7 @@ class SubgraphAnalyzer:
             avg_weighted_score = total_weighted_score / max(connection_count, 1)
 
             # Get person details and feature value
-            person_data = df.iloc[node_idx]
+            person_data = df.loc[node_idx]
             feature_value = self._get_feature_profile(person_data, feature)
 
             node_scores.append(
