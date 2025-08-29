@@ -20,7 +20,7 @@ class SimilarityCalculator:
         logger.info("⚡ Precomputing similarity matrices...")
 
         feature_names = [
-            "role_spec",
+            "role",
             "experience",
             "personas",
             "industry",
@@ -45,7 +45,7 @@ class SimilarityCalculator:
     def get_all_similarities(self, person_i: int, person_j: int) -> Dict[str, float]:
         """Get all similarity scores between two people"""
         return {
-            "role": self.get_similarity_score("role_spec", person_i, person_j),
+            "role": self.get_similarity_score("role", person_i, person_j),
             "experience": self.get_similarity_score("experience", person_i, person_j),
             "industry": self.get_similarity_score("industry", person_i, person_j),
             "market": self.get_similarity_score("market", person_i, person_j),

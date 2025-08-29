@@ -84,9 +84,7 @@ class AppCacheService:
             if embedding:
                 cached_embeddings[idx] = embedding
 
-        logger.info(
-            f"Found {len(cached_embeddings)} cached {feature_type} embeddings out of {len(df)} people"
-        )
+        logger.info(f"Found {len(cached_embeddings)} cached {feature_type} embeddings out of {len(df)} people")
         return cached_embeddings
 
     def cache_people_embeddings(
@@ -138,7 +136,7 @@ class AppCacheService:
         """Extract relevant row data for caching key generation"""
         if feature_type == "role":
             return {
-                "role_spec": str(
+                "role": str(
                     row.get("Professional Identity - Role Specification", "")
                 )
             }

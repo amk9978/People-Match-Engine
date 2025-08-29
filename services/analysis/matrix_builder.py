@@ -289,7 +289,7 @@ class MatrixBuilder:
                 # Keep individual tags for backward compatibility if needed
                 "roles": tag_extractor.extract_tags(
                     str(row.get("Professional Identity - Role Specification", "")),
-                    "role_spec",
+                    "role",
                 ),
                 "experience": tag_extractor.extract_tags(
                     str(row.get("Professional Identity - Experience Level", "")),

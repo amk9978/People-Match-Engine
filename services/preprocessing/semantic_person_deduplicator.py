@@ -124,7 +124,7 @@ Return ONLY the selected tag, nothing else."""
         df = pd.read_csv(csv_path)
 
         feature_columns = {
-            "role_spec": "Professional Identity - Role Specification",
+            "role": "Professional Identity - Role Specification",
             "experience": "Professional Identity - Experience Level",
             "industry": "Company Identity - Industry Classification",
             "market": "Company Market - Market Traction",
@@ -374,7 +374,7 @@ if __name__ == "__main__":
                 "AI Scientist",
             ]
             result = await deduplicator.apply_semantic_deduplication(
-                test_tags, "role_spec", threshold
+                test_tags, "role", threshold
             )
             logger.info(f"\nExample clustering: {test_tags} → {result}")
 

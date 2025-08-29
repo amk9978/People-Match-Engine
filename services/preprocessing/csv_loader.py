@@ -40,7 +40,7 @@ class CSVLoader:
             "Person Name",
             "Person Title",
             "Person Company",
-            "Person Linkedin URL",  # LinkedIn URL is essential
+            "Linkedin URL",
             "Professional Identity - Role Specification",
             "Professional Identity - Experience Level",
             "Company Identity - Industry Classification",
@@ -86,7 +86,7 @@ class CSVLoader:
     def get_feature_columns(self) -> dict:
         """Get the mapping of feature names to column names"""
         return {
-            "role_spec": "Professional Identity - Role Specification",
+            "role": "Professional Identity - Role Specification",
             "experience": "Professional Identity - Experience Level",
             "industry": "Company Identity - Industry Classification",
             "market": "Company Market - Market Traction",
