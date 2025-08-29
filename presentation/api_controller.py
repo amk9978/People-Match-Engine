@@ -54,14 +54,14 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
     """WebSocket endpoint for real-time job updates with heartbeat support"""
     import asyncio
     import json
-    
+
     await notification_service.connect(websocket, client_id)
     try:
         while True:
             data = await websocket.receive_text()
             try:
                 message = json.loads(data)
-                if message.get('type') == 'ping':
+                if message.get("type") == "ping":
                     await websocket.send_text(json.dumps({"type": "pong"}))
                 else:
                     await notification_service.send_personal_message(
