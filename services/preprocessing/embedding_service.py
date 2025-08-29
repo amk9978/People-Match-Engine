@@ -31,7 +31,7 @@ class EmbeddingService(EmbeddingServiceProtocol):
 
         try:
             with sentry_sdk.start_transaction(
-                    op="ai.embed", name="openai_embedding", sampled=False
+                op="ai.embed", name="openai_embedding", sampled=False
             ):
                 response = await self.openai_client.embeddings.create(
                     input=text, model="text-embedding-3-small"
@@ -83,7 +83,7 @@ class EmbeddingService(EmbeddingServiceProtocol):
                 )
 
                 with sentry_sdk.start_transaction(
-                        op="ai.embed", name="openai_batch_embedding", sampled=False
+                    op="ai.embed", name="openai_batch_embedding", sampled=False
                 ):
                     response = await self.openai_client.embeddings.create(
                         input=batch_texts,  # Send all texts at once
@@ -127,9 +127,9 @@ class EmbeddingService(EmbeddingServiceProtocol):
                     original_index = batch_indices[i]
                     try:
                         with sentry_sdk.start_transaction(
-                                op="ai.embed",
-                                name="openai_fallback_embedding",
-                                sampled=False,
+                            op="ai.embed",
+                            name="openai_fallback_embedding",
+                            sampled=False,
                         ):
                             response = await self.openai_client.embeddings.create(
                                 input=text, model="text-embedding-3-small"

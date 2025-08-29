@@ -129,7 +129,9 @@ class BusinessAnalyzer:
         except (json.JSONDecodeError, AttributeError):
             pass
 
-        logger.info(f"Could not parse batch ChatGPT response, using fallback scores. Result: {result_text}")
+        logger.info(
+            f"Could not parse batch ChatGPT response, using fallback scores. Result: {result_text}"
+        )
         return {
             target: {comp: 0.5 for comp in comparison_profiles}
             for target in target_profiles

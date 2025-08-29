@@ -63,7 +63,7 @@ class EmbeddingBuilder:
         return business_tags
 
     async def embed_features(
-            self, df: pd.DataFrame, feature_columns: Dict[str, str]
+        self, df: pd.DataFrame, feature_columns: Dict[str, str]
     ) -> Dict[str, np.ndarray]:
         """Create OpenAI embeddings for multiple feature categories with row-based caching"""
         logger.info("Creating feature embeddings with row-based caching...")
@@ -201,11 +201,11 @@ class EmbeddingBuilder:
         return feature_embeddings
 
     async def preprocess_tags(
-            self,
-            csv_path: str,
-            similarity_threshold: float = 0.7,
-            fuzzy_threshold: float = 0.90,
-            force_rebuild: bool = False,
+        self,
+        csv_path: str,
+        similarity_threshold: float = 0.7,
+        fuzzy_threshold: float = 0.90,
+        force_rebuild: bool = False,
     ) -> Dict[str, any]:
         """Run tag deduplication preprocessing"""
         logger.info("Running tag deduplication preprocessing...")

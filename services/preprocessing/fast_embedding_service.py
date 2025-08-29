@@ -30,7 +30,7 @@ class FastEmbeddingService(EmbeddingServiceProtocol):
 
         try:
             with sentry_sdk.start_transaction(
-                    op="ai.embed", name="fastembed_embedding", sampled=False
+                op="ai.embed", name="fastembed_embedding", sampled=False
             ):
                 embeddings = list(self.model.embed([text]))
                 embedding = embeddings[0].tolist()
@@ -81,7 +81,7 @@ class FastEmbeddingService(EmbeddingServiceProtocol):
                 )
 
                 with sentry_sdk.start_transaction(
-                        op="ai.embed", name="fastembed_batch_embedding", sampled=False
+                    op="ai.embed", name="fastembed_batch_embedding", sampled=False
                 ):
                     embeddings = list(self.model.embed(batch_texts))
 
@@ -122,9 +122,9 @@ class FastEmbeddingService(EmbeddingServiceProtocol):
                     original_index = batch_indices[i]
                     try:
                         with sentry_sdk.start_transaction(
-                                op="ai.embed",
-                                name="fastembed_fallback_embedding",
-                                sampled=False,
+                            op="ai.embed",
+                            name="fastembed_fallback_embedding",
+                            sampled=False,
                         ):
                             embeddings = list(self.model.embed([text]))
                             embedding = embeddings[0].tolist()
