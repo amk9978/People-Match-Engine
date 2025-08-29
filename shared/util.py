@@ -1,8 +1,15 @@
+import logging
+import sys
 from typing import Dict
 
 import numpy as np
 
-from services.analysis_service import logger
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)],
+)
+logger = logging.getLogger(__name__)
 
 
 def sanitize_metrics(metrics: Dict[str, float]) -> Dict[str, float]:
