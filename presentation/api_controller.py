@@ -51,15 +51,30 @@ job_service = JobService()
 
 @app.websocket("/ws/{client_id}")
 async def websocket_endpoint(websocket: WebSocket, client_id: str):
-    """WebSocket endpoint for real-time job updates"""
+    """WebSocket endpoint for real-time job updates with heartbeat support"""
+    import asyncio
+    import json
+    
     await notification_service.connect(websocket, client_id)
     try:
         while True:
             data = await websocket.receive_text()
-            await notification_service.send_personal_message(
-                {"type": "echo", "message": f"Received: {data}"}, client_id
-            )
+            try:
+                message = json.loads(data)
+                if message.get('type') == 'ping':
+                    await websocket.send_text(json.dumps({"type": "pong"}))
+                else:
+                    await notification_service.send_personal_message(
+                        {"type": "echo", "message": f"Received: {data}"}, client_id
+                    )
+            except json.JSONDecodeError:
+                await notification_service.send_personal_message(
+                    {"type": "echo", "message": f"Received: {data}"}, client_id
+                )
     except WebSocketDisconnect:
+        notification_service.disconnect(client_id)
+    except Exception as e:
+        logger.error(f"WebSocket error for client {client_id}: {e}")
         notification_service.disconnect(client_id)
 
 

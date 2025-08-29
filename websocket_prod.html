@@ -690,6 +690,9 @@
         let selectedFile = null;
         let currentJobId = null;
         let selectedRerunFile = null;
+        let heartbeatInterval = null;
+        let reconnectAttempts = 0;
+        let maxReconnectAttempts = 10;
         let lastJobConfig = null;
 
 
@@ -723,23 +726,51 @@
             websocket.onopen = function() {
                 updateConnectionStatus(true);
                 logMessage('🔗 WebSocket connected successfully!', 'success');
-
+                reconnectAttempts = 0;
+                startHeartbeat();
             };
 
             websocket.onmessage = function(event) {
                 const data = JSON.parse(event.data);
+                if (data.type === 'pong') {
+                    return;
+                }
                 handleWebSocketMessage(data);
             };
 
-            websocket.onclose = function() {
+            websocket.onclose = function(event) {
                 updateConnectionStatus(false);
-                logMessage('🔌 WebSocket connection closed. Reconnecting...', 'warning');
-                setTimeout(connectWebSocket, 3000);
+                stopHeartbeat();
+                
+                if (reconnectAttempts < maxReconnectAttempts) {
+                    const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000);
+                    logMessage(`🔌 WebSocket connection closed (${event.code}). Reconnecting in ${delay/1000}s... (${reconnectAttempts + 1}/${maxReconnectAttempts})`, 'warning');
+                    reconnectAttempts++;
+                    setTimeout(connectWebSocket, delay);
+                } else {
+                    logMessage('❌ Max reconnection attempts reached. Please refresh the page.', 'error');
+                }
             };
 
             websocket.onerror = function(error) {
-                logMessage('❌ WebSocket error: ' + error.message, 'error');
+                logMessage('❌ WebSocket error occurred', 'error');
+                stopHeartbeat();
             };
+        }
+
+        function startHeartbeat() {
+            heartbeatInterval = setInterval(function() {
+                if (websocket && websocket.readyState === WebSocket.OPEN) {
+                    websocket.send(JSON.stringify({ type: 'ping' }));
+                }
+            }, 30000);
+        }
+
+        function stopHeartbeat() {
+            if (heartbeatInterval) {
+                clearInterval(heartbeatInterval);
+                heartbeatInterval = null;
+            }
         }
 
         function updateConnectionStatus(connected) {
@@ -2222,6 +2253,7 @@
         // Re-enable analyze button when job completes
         window.addEventListener('beforeunload', function() {
             if (websocket) {
+                stopHeartbeat();
                 websocket.close();
             }
         });
