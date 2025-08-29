@@ -9,8 +9,12 @@ from sentry_sdk.integrations.logging import LoggingIntegration
 load_dotenv()
 
 
-def str_to_bool(value: str) -> bool:
-    return value.lower() in ("1", "true", "True", "yes", "on")
+def str_to_bool(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.lower() in ("1", "true", "True", "yes", "on")
+    return bool(value)
 
 
 def get_envs(env_key: str, cast, default=None) -> str | int | float | bool | Any:
@@ -35,6 +39,10 @@ MIN_DENSITY = get_envs("MIN_DENSITY", cast=float, default=0.1)
 FALLBACK_VALUE = get_envs("FALLBACK_VALUE", cast=float, default=0.5)
 
 DATA_DIR = get_envs("DATA_DIR", cast=str, default="./data")
+
+USE_FAISS = get_envs("USE_FAISS", cast=bool, default=False)
+EMBEDDING_SERVICE = get_envs("EMBEDDING_SERVICE", cast=str, default="fast")
+FAISS_INDEX_TYPE = get_envs("FAISS_INDEX_TYPE", cast=str, default="flat")
 
 SENTRY_DSN = get_envs("SENTRY_DSN", cast=str, default="")
 SENTRY_ENVIRONMENT = get_envs("SENTRY_ENVIRONMENT", cast=str, default="production")
