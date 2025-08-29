@@ -43,11 +43,12 @@ class SubgraphAnalyzer:
 
         valid_nodes = {node for node in nodes if node in df.index}
         invalid_nodes = [node for node in nodes if node not in df.index]
-        
-        if invalid_nodes:
-            logger.warning(f"Filtering out invalid nodes not in DataFrame: {invalid_nodes}")
 
-        
+        if invalid_nodes:
+            logger.warning(
+                f"Filtering out invalid nodes not in DataFrame: {invalid_nodes}"
+            )
+
         members = []
         for node in valid_nodes:
             person_data = df.loc[node]
@@ -97,7 +98,12 @@ class SubgraphAnalyzer:
             )
 
             hybrid_insights = self.analyze_hybrid_centroids(
-                valid_nodes, feature_embeddings, matrix_builder, tuned_w_s, tuned_w_c, df
+                valid_nodes,
+                feature_embeddings,
+                matrix_builder,
+                tuned_w_s,
+                tuned_w_c,
+                df,
             )
 
             feature_importance_analysis = self.analyze_feature_importance(
@@ -121,8 +127,8 @@ class SubgraphAnalyzer:
             )
 
         result = {
-                "nodes": valid_nodes,
-                "size": len(valid_nodes),
+            "nodes": valid_nodes,
+            "size": len(valid_nodes),
             "density": density,
             "avg_edge_weight": avg_weight,
             "members": members,
@@ -162,16 +168,21 @@ class SubgraphAnalyzer:
         return total_weight / max_possible_edges if max_possible_edges > 0 else 0.0
 
     def analyze_subgraph_centroids(
-        self, nodes: Set[int], feature_embeddings: Dict[str, np.ndarray], df: pd.DataFrame
+        self,
+        nodes: Set[int],
+        feature_embeddings: Dict[str, np.ndarray],
+        df: pd.DataFrame,
     ) -> Dict:
         """Analyze centroids to identify which feature values make the subgraph dense"""
         # Create mapping from node IDs to DataFrame positions for embedding indexing
         node_to_pos = {node_id: pos for pos, node_id in enumerate(df.index)}
-        
+
         centroids = {}
 
         for feature_name, embeddings in feature_embeddings.items():
-            valid_positions = [node_to_pos[node] for node in nodes if node in node_to_pos]
+            valid_positions = [
+                node_to_pos[node] for node in nodes if node in node_to_pos
+            ]
             subgraph_embeddings = embeddings[valid_positions]
             centroid = np.mean(subgraph_embeddings, axis=0)
 
@@ -201,7 +212,9 @@ class SubgraphAnalyzer:
             return []
 
         node_list = list(nodes)
-        valid_positions = [node_to_pos[node] for node in node_list if node in node_to_pos]
+        valid_positions = [
+            node_to_pos[node] for node in node_list if node in node_to_pos
+        ]
         subgraph_embeddings = embeddings[valid_positions]
 
         centroid_norm = np.linalg.norm(centroid)
@@ -1353,7 +1366,9 @@ class SubgraphAnalyzer:
             if category not in feature_embeddings:
                 continue
 
-            valid_positions = [node_to_pos[node] for node in node_list if node in node_to_pos]
+            valid_positions = [
+                node_to_pos[node] for node in node_list if node in node_to_pos
+            ]
             category_embeddings = feature_embeddings[category][valid_positions]
 
             embedding_similarities = []
@@ -1935,10 +1950,20 @@ class SubgraphAnalyzer:
                     # Use similarity from embeddings
                     if feature in feature_embeddings:
                         embeddings = feature_embeddings[feature]
-                        node_to_pos = {node_id: pos for pos, node_id in enumerate(df.index)}
-                        emb_i = embeddings[node_to_pos[node_idx]] if node_idx in node_to_pos else None
-                        emb_j = embeddings[node_to_pos[other_idx]] if other_idx in node_to_pos else None
-                        
+                        node_to_pos = {
+                            node_id: pos for pos, node_id in enumerate(df.index)
+                        }
+                        emb_i = (
+                            embeddings[node_to_pos[node_idx]]
+                            if node_idx in node_to_pos
+                            else None
+                        )
+                        emb_j = (
+                            embeddings[node_to_pos[other_idx]]
+                            if other_idx in node_to_pos
+                            else None
+                        )
+
                         if emb_i is None or emb_j is None:
                             continue
 
@@ -2142,9 +2167,19 @@ class SubgraphAnalyzer:
                     # Use similarity from embeddings
                     if feature in feature_embeddings:
                         embeddings = feature_embeddings[feature]
-                        node_to_pos = {node_id: pos for pos, node_id in enumerate(df.index)}
-                        emb_i = embeddings[node_to_pos[node_idx]] if node_idx in node_to_pos else None
-                        emb_j = embeddings[node_to_pos[other_idx]] if other_idx in node_to_pos else None
+                        node_to_pos = {
+                            node_id: pos for pos, node_id in enumerate(df.index)
+                        }
+                        emb_i = (
+                            embeddings[node_to_pos[node_idx]]
+                            if node_idx in node_to_pos
+                            else None
+                        )
+                        emb_j = (
+                            embeddings[node_to_pos[other_idx]]
+                            if other_idx in node_to_pos
+                            else None
+                        )
 
                         if emb_i is None or emb_j is None:
                             continue
