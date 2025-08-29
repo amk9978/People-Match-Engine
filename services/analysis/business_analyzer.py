@@ -1,14 +1,15 @@
+import asyncio
 import hashlib
 import json
 import logging
 import os
 import re
-from typing import Dict, List, Set
+from typing import Dict, List, Set, Union, overload
 
 import pandas as pd
 from openai import AsyncOpenAI
 
-from services.redis.redis_cache import RedisEmbeddingCache
+from services.redis.app_cache_service import app_cache_service
 
 logger = logging.getLogger(__name__)
 
@@ -17,97 +18,8 @@ class BusinessAnalyzer:
     """Handles ChatGPT-based business complementarity analysis"""
 
     def __init__(self):
-        self.openai_client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        self.cache = RedisEmbeddingCache()
-
-    def extract_business_tags_from_dataset(self, csv_path: str) -> Dict[str, Set[str]]:
-        """Extract all unique business tags from dataset"""
-        df = pd.read_csv(csv_path)
-
-        business_columns = {
-            "industry": "Company Identity - Industry Classification",
-            "market": "Company Market - Market Traction",
-            "offering": "Company Offering - Value Proposition",
-        }
-
-        business_tags = {category: set() for category in business_columns.keys()}
-
-        for category, column_name in business_columns.items():
-            for _, row in df.iterrows():
-                if pd.notna(row[column_name]):
-                    # Split by pipe and clean
-                    tags = [tag.strip() for tag in str(row[column_name]).split("|")]
-                    business_tags[category].update(tag for tag in tags if tag)
-
-        logger.info(f"Extracted business tags:")
-        for category, tags in business_tags.items():
-            logger.info(f"  {category}: {len(tags)} unique tags")
-
-        return business_tags
-
-    async def get_causal_relationships_for_tag(
-        self, target_tag: str, comparison_tags: List[str], category: str
-    ) -> Dict[str, float]:
-        """Get causal relationship scores for one tag against a list of others"""
-
-        # Check cache first
-        cache_key = f"causal_{category}_{target_tag}_vs_{len(comparison_tags)}"
-        cached_result = self.cache.get(cache_key)
-        if cached_result and isinstance(cached_result, str):
-            return json.loads(cached_result)
-
-        # Prepare ChatGPT prompt
-        comparison_list = "\n".join([f"- {tag}" for tag in comparison_tags])
-
-        prompt = f"""
-You are a business strategy expert analyzing complementary relationships between {category} characteristics.
-
-TARGET: {target_tag}
-
-Rate the STRATEGIC VALUE of business connections between "{target_tag}" and each of these other {category} characteristics:
-
-{comparison_list}
-
-Scoring criteria (0.0 to 1.0):
-- 0.9-1.0: Highly complementary, creates significant strategic value (e.g., "Early-stage" + "Growth-stage" for mentorship/investment)
-- 0.7-0.8: Strong complementary value (e.g., "B2B SaaS" + "Enterprise Hardware" for integration opportunities)  
-- 0.5-0.6: Moderate complementary value (some synergies possible)
-- 0.3-0.4: Limited complementary value (different but not particularly synergistic)
-- 0.1-0.2: Minimal complementary value (too similar or unrelated)
-- 0.0: No strategic value (identical or conflicting)
-
-IMPORTANT: Rate COMPLEMENTARY VALUE, not similarity. Different industries/stages often create MORE strategic value.
-
-CRITICAL: You MUST respond with ONLY a valid JSON object. No explanations, no markdown, no text before or after. Start your response with {{ and end with }}. Example format:
-{{"Artificial Intelligence": 0.85, "Manufacturing": 0.92, "Healthcare": 0.76}}
-
-Your response:"""
-
-        try:
-            response = await self.openai_client.chat.completions.create(
-                model="gpt-4",
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0,
-                max_tokens=1000,
-            )
-
-            result_text = response.choices[0].message.content.strip()
-
-            # Enhanced JSON parsing with multiple fallback strategies
-            causal_scores = self._parse_chatgpt_response(result_text, comparison_tags)
-
-            # Cache the result
-            self.cache.set(cache_key, json.dumps(causal_scores))
-
-            logger.info(
-                f"  ✓ Got causal scores for {target_tag} vs {len(causal_scores)} tags"
-            )
-            return causal_scores
-
-        except Exception as e:
-            logger.info(f"  ✗ Error getting causal scores for {target_tag}: {e}")
-            # Return default moderate scores
-            return {tag: 0.5 for tag in comparison_tags}
+        self.openai_client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"), timeout=30.0)
+        self.cache = app_cache_service
 
     def _parse_chatgpt_response(
         self, result_text: str, comparison_tags: List[str]
@@ -176,165 +88,176 @@ Your response:"""
         logger.info(f"  ⚠️ Could not parse ChatGPT response, using fallback scores")
         return {tag: 0.5 for tag in comparison_tags}
 
-    def extract_persona_tags_from_dataset(self, csv_path: str) -> Set[str]:
-        """Extract all unique persona tags from the dataset"""
-        df = pd.read_csv(csv_path)
-
-        persona_tags = set()
-        for _, row in df.iterrows():
-            if pd.notna(row["All Persona Titles"]):
-                # Split by pipe and clean tags
-                raw_tags = str(row["All Persona Titles"]).split("|")
-                for tag in raw_tags:
-                    clean_tag = tag.strip()
-                    if clean_tag and len(clean_tag) > 2:
-                        persona_tags.add(clean_tag)
-
-        logger.info(f"Extracted {len(persona_tags)} unique persona tags from dataset")
-        return persona_tags
-
-    def extract_role_tags_from_dataset(self, csv_path: str) -> Set[str]:
-        """Extract all unique role specification tags from the dataset"""
-        df = pd.read_csv(csv_path)
-
-        role_tags = set()
-        for _, row in df.iterrows():
-            if pd.notna(row["Professional Identity - Role Specification"]):
-                # Split by pipe and clean tags
-                raw_tags = str(row["Professional Identity - Role Specification"]).split(
-                    "|"
-                )
-                for tag in raw_tags:
-                    clean_tag = tag.strip()
-                    if clean_tag and len(clean_tag) > 2:
-                        role_tags.add(clean_tag)
-
-        logger.info(f"Extracted {len(role_tags)} unique role tags from dataset")
-        return role_tags
-
-    async def analyze_role_complementarity(self, role1: str, role2: str) -> float:
-        """Analyze complementarity between two specific roles using ChatGPT"""
-        if role1 == role2:
-            return 0.0
-
-        cache_key = f"role_complementarity_{role1}_{role2}"
-        cached_result = self.cache.get(cache_key)
-        if cached_result is not None:
-            return float(cached_result)
-
-        prompt = f"""
-You are analyzing professional role complementarity for networking value.
-
-Role 1: "{role1}"
-Role 2: "{role2}"
-
-Rate the STRATEGIC NETWORKING VALUE (0.0 to 1.0) if these two roles connected:
-
-- 0.9-1.0: Highly complementary (e.g., "Software Engineer" + "Product Manager", "Founder" + "Investor")
-- 0.7-0.8: Strong complementary value (e.g., "Sales Director" + "Marketing Director")
-- 0.5-0.6: Moderate complementary value (related but different focus)
-- 0.3-0.4: Limited complementary value (somewhat related)
-- 0.1-0.2: Minimal complementary value (very similar or unrelated)
-- 0.0: No strategic value (identical roles)
-
-RESPOND WITH ONLY A NUMBER BETWEEN 0.0 AND 1.0:"""
-
+    def _parse_batch_chatgpt_response(
+        self, result_text: str, target_profiles: List[str], comparison_profiles: List[str]
+    ) -> Dict[str, Dict[str, float]]:
+        """Parse batch ChatGPT response with fallback strategies"""
+        
+        # Strategy 1: Try direct JSON parsing
         try:
-            response = await self.openai_client.chat.completions.create(
-                model="gpt-4",
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0,
-                max_tokens=10,
-            )
+            return json.loads(result_text)
+        except json.JSONDecodeError:
+            pass
+        
+        # Strategy 2: Remove markdown formatting
+        try:
+            if "```json" in result_text:
+                json_part = result_text.split("```json")[1].split("```")[0].strip()
+            elif "```" in result_text:
+                json_part = result_text.split("```")[1].split("```")[0].strip()
+            else:
+                json_part = result_text
+            
+            return json.loads(json_part)
+        except (json.JSONDecodeError, IndexError):
+            pass
+        
+        # Strategy 3: Find JSON-like content with regex
+        try:
+            json_match = re.search(r"\{.*\}", result_text, re.DOTALL)
+            if json_match:
+                json_content = json_match.group(0)
+                return json.loads(json_content)
+        except (json.JSONDecodeError, AttributeError):
+            pass
+        
+        # Final fallback: Return moderate scores for all combinations
+        logger.info(f"  ⚠️ Could not parse batch ChatGPT response, using fallback scores")
+        return {
+            target: {comp: 0.5 for comp in comparison_profiles} 
+            for target in target_profiles
+        }
 
-            result_text = response.choices[0].message.content.strip()
 
-            # Try to extract a float
-            try:
-                score = float(result_text)
-                if 0.0 <= score <= 1.0:
-                    # Cache the result
-                    self.cache.set(cache_key, score)
-                    return score
-            except ValueError:
-                pass
-
-            # Fallback: return moderate score
-            self.cache.set(cache_key, 0.5)
-            return 0.5
-
-        except Exception as e:
-            logger.info(
-                f"Error analyzing role complementarity for {role1} vs {role2}: {e}"
-            )
-            self.cache.set(cache_key, 0.5)
-            return 0.5
-
-    async def get_profile_complementarity(
-        self, target_profile: str, comparison_profiles: List[str], category: str
-    ) -> Dict[str, float]:
-        """Get complementarity scores between complete profile vectors"""
-        target_hash = hashlib.md5(target_profile.encode()).hexdigest()[:8]
-        comparison_hash = hashlib.md5(
-            str(sorted(comparison_profiles)).encode()
-        ).hexdigest()[:8]
-        cache_key = (
-            f"profile_complementarity_{category}_{target_hash}_vs_{comparison_hash}"
-        )
-        cached_result = self.cache.get(cache_key)
-        if cached_result and isinstance(cached_result, str):
-            return json.loads(cached_result)
-
+    async def _process_single_batch(
+        self, batch_targets: List[str], comparison_profiles: List[str], category: str
+    ) -> Dict[str, Dict[str, float]]:
+        """Process a single batch of targets concurrently"""
+        targets_list = "\n".join([f"{j+1}. {profile}" for j, profile in enumerate(batch_targets)])
         comparison_list = "\n".join([f"- {profile}" for profile in comparison_profiles])
+        
+        prompt = f"""You are analyzing complementarity between multiple {category} target profiles and comparison profiles.
 
-        prompt = f"""
-You are a business strategy expert analyzing complementary relationships between complete {category} profiles.
+TARGET PROFILES:
+{targets_list}
 
-TARGET PROFILE: {target_profile}
-
-Rate the STRATEGIC COMPLEMENTARITY between the target profile and each of these other {category} profiles:
-
+COMPARISON PROFILES:
 {comparison_list}
+
+For EACH target profile (1-{len(batch_targets)}), rate its complementarity (0.0-1.0) against ALL comparison profiles.
 
 Scoring criteria (0.0 to 1.0):
 - 0.9-1.0: Highly complementary profiles that create significant strategic value together
 - 0.7-0.8: Strong complementarity with clear synergistic potential
-- 0.5-0.6: Moderate complementarity with some collaboration opportunities  
+- 0.5-0.6: Moderate complementarity with some collaboration opportunities
 - 0.3-0.4: Limited complementarity, different but not particularly synergistic
 - 0.1-0.2: Minimal complementarity, too similar or conflicting
 - 0.0: No strategic value, identical or directly competing profiles
 
-IMPORTANT: Rate COMPLEMENTARY VALUE between complete profiles, not similarity. Consider how the full profile combinations would create strategic business value.
+Return a JSON object where each target profile maps to its scores:
+{{
+  "Target Profile 1 Name": {{"Comparison 1": 0.8, "Comparison 2": 0.6}},
+  "Target Profile 2 Name": {{"Comparison 1": 0.4, "Comparison 2": 0.9}}
+}}
 
-CRITICAL: You MUST respond with ONLY a valid JSON object. No explanations, no markdown, no text before or after. Start your response with {{ and end with }}.
-
-Your response:"""
-
+CRITICAL: Return ONLY valid JSON, no explanations. Use exact target profile names as keys."""
+        
         try:
             response = await self.openai_client.chat.completions.create(
-                model="gpt-4",
+                model="gpt-4o-mini",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0,
-                max_tokens=1500,
+                max_tokens=6000,
             )
-
+            
             result_text = response.choices[0].message.content.strip()
-
-            # Enhanced JSON parsing
-            complementarity_scores = self._parse_chatgpt_response(
-                result_text, comparison_profiles
+            batch_results = self._parse_batch_chatgpt_response(
+                result_text, batch_targets, comparison_profiles
             )
-
-            # Cache the result
-            self.cache.set(cache_key, json.dumps(complementarity_scores))
-
-            logger.info(
-                f"  ✓ Got profile complementarity for {target_profile[:50]}... vs {len(complementarity_scores)} profiles"
-            )
-            return complementarity_scores
-
+            
+            logger.info(f"  ✅ Processed batch of {len(batch_targets)} {category} profiles")
+            return batch_results
+            
         except Exception as e:
-            logger.info(
-                f"⚠️ Error getting profile complementarity for {target_profile}: {e}"
+            logger.error(f"  ❌ Batch complementarity failed for {category}: {e}")
+            logger.info(f"  🔄 Falling back to individual requests for {len(batch_targets)} profiles")
+            
+            individual_results = {}
+            for target in batch_targets:
+                individual_results[target] = {profile: 0.5 for profile in comparison_profiles}
+            
+            return individual_results
+
+    @overload
+    async def get_profile_complementarity(
+        self, target_profiles: str, comparison_profiles: List[str], category: str, batch_size: int = 16
+    ) -> Dict[str, float]: ...
+
+    @overload
+    async def get_profile_complementarity(
+        self, target_profiles: List[str], comparison_profiles: List[str], category: str, batch_size: int = 16
+    ) -> Dict[str, Dict[str, float]]: ...
+
+    async def get_profile_complementarity(
+        self, target_profiles: Union[str, List[str]], comparison_profiles: List[str], category: str, batch_size: int = 16
+    ) -> Union[Dict[str, float], Dict[str, Dict[str, float]]]:
+        """Get complementarity scores for single or multiple target profiles in batched requests"""
+        
+        # Handle single profile input
+        single_profile = isinstance(target_profiles, str)
+        if single_profile:
+            target_profiles = [target_profiles]
+        
+        # Check cache status for the dataset
+        cache_status = self.cache.get_dataset_complementarity_cache_status(target_profiles, comparison_profiles, category)
+        results = cache_status['cached_results']
+        uncached_targets = cache_status['uncached_targets']
+        
+        if not uncached_targets:
+            if single_profile:
+                return results[list(results.keys())[0]]
+            return results
+        
+        logger.info(f"Processing {len(uncached_targets)} uncached {category} profiles in batches of {batch_size}")
+        
+        # Create all batch tasks concurrently
+        tasks = []
+        for i in range(0, len(uncached_targets), batch_size):
+            batch_targets = uncached_targets[i:i + batch_size]
+            task = asyncio.create_task(
+                self._process_single_batch(batch_targets, comparison_profiles, category)
             )
-            return {profile: 0.5 for profile in comparison_profiles}
+            tasks.append((task, batch_targets))
+        
+        # Execute all batches concurrently and gather results
+        batch_results_list = await asyncio.gather(*[task for task, _ in tasks], return_exceptions=True)
+        
+        # Process results and handle exceptions
+        for (task, batch_targets), batch_result in zip(tasks, batch_results_list):
+            if isinstance(batch_result, Exception):
+                logger.error(f"  ❌ Batch task failed: {batch_result}")
+                for target in batch_targets:
+                    results[target] = {profile: 0.5 for profile in comparison_profiles}
+            else:
+                # Cache individual results and merge
+                batch_cache_results = {}
+                for target in batch_targets:
+                    if isinstance(batch_result, dict) and target in batch_result:
+                        results[target] = batch_result[target]
+                        batch_cache_results[target] = batch_result[target]
+                        logger.info(f"  ✓ Got batch result for {target[:50]}...")
+                    else:
+                        results[target] = {profile: 0.5 for profile in comparison_profiles}
+                        logger.info(f"  ⚠️ No result for {target[:50]}..., using fallback")
+                
+                # Cache all batch results at once
+                if batch_cache_results:
+                    self.cache.cache_dataset_complementarity_results(batch_cache_results, comparison_profiles, category)
+        
+        logger.info(f"✅ Batch processing complete: {len(results)} {category} profiles processed")
+        
+        # Return single profile result if input was single profile
+        if single_profile:
+            return results[list(results.keys())[0]]
+        
+        return results

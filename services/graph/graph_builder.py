@@ -183,19 +183,14 @@ class GraphBuilder:
         user_prompt: str = None,
     ) -> nx.Graph:
         """Create graph using FAISS optimization for performance on large datasets with caching"""
-
-        if self.load_graph_from_cache(job_id) and not user_prompt:
-            return self.graph
-
         cached_embeddings = self.load_embeddings_from_cache(job_id)
         if cached_embeddings is not None:
             feature_embeddings = cached_embeddings
         else:
-
             self.save_embeddings_to_cache(feature_embeddings, job_id)
 
         graph = await self.create_graph_optimized(
-            feature_embeddings, job_id, user_prompt
+            feature_embeddings, user_prompt
         )
 
         self.save_graph_to_cache(job_id)
@@ -205,7 +200,6 @@ class GraphBuilder:
     async def create_graph_optimized(
         self,
         feature_embeddings: Dict[str, np.ndarray],
-        job_id: str,
         user_prompt: str = None,
     ) -> nx.Graph:
         self.graph = nx.Graph()
@@ -214,9 +208,8 @@ class GraphBuilder:
             self.graph.add_node(
                 idx, name=row["Person Name"], company=row["Person Company"]
             )
-        await self.matrix_builder.precompute_complementarity_matrices(
-            self.csv_path, job_id
-        )
+        matrices = await self.matrix_builder.build_all_complementarity_matrices(self.csv_path)
+        self.matrix_builder.load_matrices_into_memory(matrices)
         self.similarity_calc.precompute_similarity_matrices(feature_embeddings)
         await self.matrix_builder.precompute_person_tags(
             self.df, self.embedding_builder

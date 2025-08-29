@@ -365,6 +365,29 @@
         .member-card:hover {
             transform: translateY(-3px);
         }
+        .community-card .community-header:hover {
+            background: rgba(52, 152, 219, 0.1);
+            border-radius: 5px;
+            padding: 5px;
+            margin: -5px;
+        }
+        .community-members-full {
+            border: 1px solid #e9ecef;
+        }
+        .community-members-full::-webkit-scrollbar {
+            width: 6px;
+        }
+        .community-members-full::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 3px;
+        }
+        .community-members-full::-webkit-scrollbar-thumb {
+            background: #c1c1c1;
+            border-radius: 3px;
+        }
+        .community-members-full::-webkit-scrollbar-thumb:hover {
+            background: #a1a1a1;
+        }
         .member-name {
             font-weight: 600;
             color: #2c3e50;
@@ -1606,17 +1629,27 @@
                     const memberNames = (community.nodes || []).map(nodeId => getMemberName(nodeId));
 
                     html += `
-                        <div class="member-card" style="border-left-color: ${colors[index % colors.length]}">
-                            <div class="member-name">Community ${community.id + 1}</div>
+                        <div class="member-card community-card" style="border-left-color: ${colors[index % colors.length]}" data-community-id="${index}">
+                            <div class="member-name community-header" style="cursor: pointer; display: flex; justify-content: space-between; align-items: center;">
+                                <span>Community ${community.id !== undefined ? community.id + 1 : index + 1}</span>
+                                <span class="expand-icon" style="font-size: 12px; transition: transform 0.3s;">▼</span>
+                            </div>
                             <div style="font-size: 14px; color: #7f8c8d; margin: 8px 0;">
                                 <strong>Size:</strong> ${community.size} members<br/>
                                 <strong>Density:</strong> ${community.density ? community.density.toFixed(3) : 'N/A'}<br/>
                                 <strong>Cohesion:</strong> ${community.cohesion_ratio ? (community.cohesion_ratio * 100).toFixed(1) : 'N/A'}%
                             </div>
-                            <div style="font-size: 12px; color: #95a5a6; margin-top: 8px; line-height: 1.4;">
+                            <div class="community-members-preview" style="font-size: 12px; color: #95a5a6; margin-top: 8px; line-height: 1.4;">
                                 <strong>Members:</strong><br/>
                                 ${memberNames.slice(0, 3).join(', ')}
-                                ${memberNames.length > 3 ? `<br/>+ ${memberNames.length - 3} more...` : ''}
+                                ${memberNames.length > 3 ? `<br/><span style="color: #3498db; cursor: pointer;" onclick="toggleCommunityMembers(${index})">+ ${memberNames.length - 3} more... (click to expand)</span>` : ''}
+                            </div>
+                            <div class="community-members-full" style="display: none; font-size: 12px; color: #2c3e50; margin-top: 8px; line-height: 1.6; max-height: 200px; overflow-y: auto; background: #f8f9fa; padding: 10px; border-radius: 4px;">
+                                <strong>All Members (${memberNames.length}):</strong><br/>
+                                ${memberNames.map(name => `<div style="padding: 2px 0; border-bottom: 1px solid #ecf0f1;">${name}</div>`).join('')}
+                                <div style="text-align: center; margin-top: 8px;">
+                                    <span style="color: #3498db; cursor: pointer; font-weight: bold;" onclick="toggleCommunityMembers(${index})">▲ Collapse</span>
+                                </div>
                             </div>
                         </div>
                     `;
@@ -1625,6 +1658,29 @@
             }
 
             container.innerHTML = html;
+        }
+
+        function toggleCommunityMembers(communityIndex) {
+            const communityCard = document.querySelector(`[data-community-id="${communityIndex}"]`);
+            if (!communityCard) return;
+
+            const preview = communityCard.querySelector('.community-members-preview');
+            const full = communityCard.querySelector('.community-members-full');
+            const expandIcon = communityCard.querySelector('.expand-icon');
+
+            if (full.style.display === 'none' || full.style.display === '') {
+                // Expanding
+                preview.style.display = 'none';
+                full.style.display = 'block';
+                expandIcon.style.transform = 'rotate(180deg)';
+                expandIcon.textContent = '▲';
+            } else {
+                // Collapsing
+                preview.style.display = 'block';
+                full.style.display = 'none';
+                expandIcon.style.transform = 'rotate(0deg)';
+                expandIcon.textContent = '▼';
+            }
         }
 
         function loadCycleAnalysis(result) {
@@ -2004,7 +2060,7 @@
 
             let html = '';
             jobs.forEach(job => {
-                const date = new Date(job.timestamp).toLocaleString();
+                const date = new Date(job.created_at).toLocaleString();
                 const statusClass = job.status.toLowerCase();
                 html += `
                     <div class="job-item ${statusClass}" onclick="selectJob('${job.job_id}')">

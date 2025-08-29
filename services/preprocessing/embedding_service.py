@@ -3,6 +3,7 @@ import os
 from typing import List
 
 import numpy as np
+import sentry_sdk
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
 
@@ -26,14 +27,15 @@ class EmbeddingService:
             return cached_embedding
 
         try:
-            response = await self.openai_client.embeddings.create(
-                input=text, model="text-embedding-3-small"
-            )
+            with sentry_sdk.start_transaction(op="ai.embed", name="openai_embedding", sampled=False):
+                response = await self.openai_client.embeddings.create(
+                    input=text, model="text-embedding-3-small"
+                )
             embedding = response.data[0].embedding
             self.cache.set(text, embedding)
             return embedding
         except Exception as e:
-            logger.info(f"Error getting embedding for '{text}': {e}")
+            logger.error(f"Error getting embedding for '{text}': {e}")
             return [0.0] * 1536
 
     async def get_embedding_array(self, text: str) -> np.ndarray:
@@ -78,10 +80,11 @@ class EmbeddingService:
                 )
 
                 # TRUE BATCHING: Single API call for entire batch
-                response = await self.openai_client.embeddings.create(
-                    input=batch_texts,  # Send all texts at once
-                    model="text-embedding-3-small",
-                )
+                with sentry_sdk.start_transaction(op="ai.embed", name="openai_batch_embedding", sampled=False):
+                    response = await self.openai_client.embeddings.create(
+                        input=batch_texts,  # Send all texts at once
+                        model="text-embedding-3-small",
+                    )
 
                 # VALIDATION: Ensure we got exactly what we expected
                 if len(response.data) != len(batch_texts):
@@ -117,15 +120,16 @@ class EmbeddingService:
                 for i, text in enumerate(batch_texts):
                     original_index = batch_indices[i]
                     try:
-                        response = await self.openai_client.embeddings.create(
-                            input=text, model="text-embedding-3-small"
-                        )
+                        with sentry_sdk.start_transaction(op="ai.embed", name="openai_fallback_embedding", sampled=False):
+                            response = await self.openai_client.embeddings.create(
+                                input=text, model="text-embedding-3-small"
+                            )
                         embedding = response.data[0].embedding
                         results[original_index] = embedding
                         self.cache.set(text, embedding)
 
                     except Exception as individual_error:
-                        logger.info(
+                        logger.error(
                             f"Error getting embedding for '{text}': {individual_error}"
                         )
                         results[original_index] = [0.0] * 1536  # Fallback embedding

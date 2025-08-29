@@ -54,7 +54,7 @@ Return ONLY the selected tag, nothing else."""
 
         try:
             response = await embedding_service.openai_client.chat.completions.create(
-                model="gpt-4",
+                model="gpt-4o-mini",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0,
                 max_tokens=50,

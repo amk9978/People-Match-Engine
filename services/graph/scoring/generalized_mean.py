@@ -167,7 +167,7 @@ REQUIREMENTS:
         )
 
         response = client.chat.completions.create(
-            model="gpt-4",
+            model="gpt-4o-mini",
             messages=[{"role": "user", "content": chatgpt_prompt}],
             temperature=0,
             max_tokens=500,

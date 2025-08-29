@@ -275,3 +275,33 @@ class RedisEmbeddingCache:
         except Exception as e:
             logger.info(f"Error clearing cache: {e}")
             return 0
+
+    def delete_by_pattern(self, pattern: str) -> int:
+        """Delete keys matching a pattern"""
+        if not self.redis_client:
+            return 0
+
+        try:
+            keys = list(self.redis_client.scan_iter(match=pattern))
+            if keys:
+                deleted = self.redis_client.delete(*keys)
+                logger.info(f"Deleted {deleted} keys matching pattern '{pattern}'")
+                return deleted
+            return 0
+        except Exception as e:
+            logger.info(f"Error deleting keys with pattern '{pattern}': {e}")
+            return 0
+
+    def delete(self, key: str) -> int:
+        """Delete a specific key"""
+        if not self.redis_client:
+            return 0
+
+        try:
+            deleted = self.redis_client.delete(key)
+            if deleted > 0:
+                logger.info(f"Deleted key '{key}'")
+            return deleted
+        except Exception as e:
+            logger.info(f"Error deleting key '{key}': {e}")
+            return 0

@@ -71,17 +71,19 @@ async def root():
 
 @app.post("/analyze", response_model=AnalysisResponse)
 async def analyze_csv(
-    background_tasks: BackgroundTasks,
-    file: UploadFile = File(...),
-    min_density: Optional[float] = Form(None),
-    prompt: Optional[str] = Form(None),
-    user_id: str = Header(..., alias="X-User-ID"),
+        background_tasks: BackgroundTasks,
+        file: UploadFile = File(...),
+        min_density: Optional[float] = Form(None),
+        prompt: Optional[str] = Form(None),
+        job_id: Optional[str] = Form(None),
+        user_id: str = Header(..., alias="X-User-ID"),
 ):
     """Upload CSV file and start graph analysis with optional hyperparameter tuning
 
     Parameters:
     - min_density: Minimum density threshold for subgraph extraction
     - prompt: Optional user intent to tune hyperparameters (e.g., "I want to hire for my startup", "I need peer networking", "I want business partnerships")
+    - job_id: Optional job identifier to reuse existing job (for reruns)
     - file_id: Optional file identifier for cache isolation (auto-generated if not provided)
     - X-User-ID: User identifier in header
     """
@@ -92,19 +94,18 @@ async def analyze_csv(
         raise HTTPException(status_code=400, detail="File must be a CSV")
 
     try:
-        # Process file upload and create analysis job
         analysis_result = await analysis_service.process_file_upload_and_analysis(
             file=file,
             user_id=user_id,
             min_density=min_density,
             prompt=prompt,
+            job_id=job_id,
             file_service=file_service,
             user_service=user_service,
             job_service=job_service,
             notification_service=notification_service,
         )
 
-        # Schedule background analysis
         background_tasks.add_task(
             analysis_service.run_analysis_with_tracking,
             job_id=analysis_result["job_id"],
@@ -162,6 +163,26 @@ async def delete_job(job_id: str):
     return {"message": f"Job {job_id} deleted successfully"}
 
 
+def _sanitize_nan_values(obj):
+    """Recursively sanitize NaN and inf values from nested data structures"""
+    import math
+    import numpy as np
+    
+    if isinstance(obj, dict):
+        return {k: _sanitize_nan_values(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [_sanitize_nan_values(item) for item in obj]
+    elif isinstance(obj, (float, np.floating)):
+        value = float(obj)
+        if math.isnan(value) or math.isinf(value):
+            return None
+        return value
+    elif isinstance(obj, (int, np.integer)):
+        return int(obj)
+    else:
+        return obj
+
+
 @app.get("/jobs/{job_id}/result")
 async def get_job_result(job_id: str):
     """Get stored job result from Redis"""
@@ -172,8 +193,9 @@ async def get_job_result(job_id: str):
             status_code=404, detail="Job result not found or job not completed"
         )
 
-    # Return result_data directly to match WebSocket format
-    return {"job_id": job_id, "result": result.result_data}
+    # Sanitize result data to remove NaN values before JSON serialization
+    sanitized_result_data = _sanitize_nan_values(result.result_data)
+    return {"job_id": job_id, "result": sanitized_result_data}
 
 
 @app.get("/users/{user_id}/jobs")
@@ -241,12 +263,12 @@ async def get_file_info(file_id: str, user_id: str = Header(..., alias="X-User-I
 
 @app.get("/files/{file_id}/preview")
 async def get_file_preview(
-    file_id: str,
-    user_id: str = Header(..., alias="X-User-ID"),
-    version_id: Optional[str] = Query(
-        None, description="Version ID to preview (default: current)"
-    ),
-    limit: int = Query(10, description="Number of rows to preview"),
+        file_id: str,
+        user_id: str = Header(..., alias="X-User-ID"),
+        version_id: Optional[str] = Query(
+            None, description="Version ID to preview (default: current)"
+        ),
+        limit: int = Query(10, description="Number of rows to preview"),
 ):
     """Get preview of file data with sample rows"""
     result = file_service.get_file_preview_with_validation(
@@ -259,7 +281,7 @@ async def get_file_preview(
 
 @app.get("/jobs")
 async def list_jobs(
-    status: Optional[str] = Query(None), limit: Optional[int] = Query(50)
+        status: Optional[str] = Query(None), limit: Optional[int] = Query(50)
 ):
     """List all jobs with optional status filter"""
     result = job_service.list_jobs_with_details(status, limit)
