@@ -124,22 +124,24 @@ class BusinessAnalyzer:
         # Strategy 3: Find complete JSON object with better regex
         try:
             brace_count = 0
-            start_pos = result_text.find('{')
+            start_pos = result_text.find("{")
             if start_pos != -1:
                 for i, char in enumerate(result_text[start_pos:], start_pos):
-                    if char == '{':
+                    if char == "{":
                         brace_count += 1
-                    elif char == '}':
+                    elif char == "}":
                         brace_count -= 1
                         if brace_count == 0:
-                            json_content = result_text[start_pos:i+1]
+                            json_content = result_text[start_pos : i + 1]
                             return json.loads(json_content)
         except (json.JSONDecodeError, ValueError):
             pass
 
         # Strategy 4: Try to find and parse nested JSON structures
         try:
-            json_match = re.search(r'{[^{}]*(?:{[^{}]*}[^{}]*)*}', result_text, re.DOTALL)
+            json_match = re.search(
+                r"{[^{}]*(?:{[^{}]*}[^{}]*)*}", result_text, re.DOTALL
+            )
             if json_match:
                 json_content = json_match.group(0)
                 return json.loads(json_content)
@@ -149,9 +151,9 @@ class BusinessAnalyzer:
         # Strategy 5: Manual parsing of key-value pairs from truncated response
         try:
             scores = {}
-            lines = result_text.split('\n')
+            lines = result_text.split("\n")
             current_target = None
-            
+
             for line in lines:
                 line = line.strip()
                 # Look for target profile names
@@ -159,13 +161,13 @@ class BusinessAnalyzer:
                     if target[:50] in line and '"' in line:
                         current_target = target
                         break
-                
+
                 # Look for comparison scores
-                if current_target and ':' in line:
+                if current_target and ":" in line:
                     for comp in comparison_profiles:
                         if comp[:30] in line:
                             try:
-                                score_match = re.search(r':\s*([0-9]*\.?[0-9]+)', line)
+                                score_match = re.search(r":\s*([0-9]*\.?[0-9]+)", line)
                                 if score_match:
                                     score = float(score_match.group(1))
                                     if 0.0 <= score <= 1.0:
@@ -174,7 +176,7 @@ class BusinessAnalyzer:
                                         scores[current_target][comp] = score
                             except (ValueError, AttributeError):
                                 pass
-            
+
             if scores:
                 for target in target_profiles:
                     if target not in scores:
@@ -183,7 +185,7 @@ class BusinessAnalyzer:
                         if comp not in scores[target]:
                             scores[target][comp] = FALLBACK_VALUE
                 return scores
-                            
+
         except Exception:
             pass
 
@@ -257,8 +259,10 @@ class BusinessAnalyzer:
             result_text = response.choices[0].message.content.strip()
             logger.debug(f"Raw ChatGPT response length: {len(result_text)} chars")
             logger.debug(f"Response starts with: {result_text[:200]}")
-            logger.debug(f"Response ends with: {result_text[-200:] if len(result_text) > 200 else result_text}")
-            
+            logger.debug(
+                f"Response ends with: {result_text[-200:] if len(result_text) > 200 else result_text}"
+            )
+
             batch_results = self._parse_batch_chatgpt_response(
                 result_text, batch_targets, comparison_profiles
             )
