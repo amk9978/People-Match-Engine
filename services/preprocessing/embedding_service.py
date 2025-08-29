@@ -113,7 +113,7 @@ class EmbeddingService:
                 logger.info(
                     f"Successfully processed batch of {len(batch_texts)} embeddings"
                 )
-                
+
                 if batch_end < len(uncached_texts):
                     await asyncio.sleep(self.batch_delay)
 
