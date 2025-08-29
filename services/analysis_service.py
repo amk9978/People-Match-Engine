@@ -493,9 +493,6 @@ class AnalysisService:
                 notification_service,
             )
 
-            embedding_builder = EmbeddingBuilder()
-            await embedding_builder.preprocess_tags(csv_path, similarity_threshold=0.75)
-
             await self._update_job_and_notify(
                 job_id,
                 "processing",

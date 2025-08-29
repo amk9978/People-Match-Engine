@@ -366,8 +366,6 @@ class GraphBuilder:
 
         self.load_data()
 
-        dedup_stats = await self.preprocess_tags()
-
         feature_embeddings = await self.embed_features()
 
         await self.create_graph(feature_embeddings, job_id, user_prompt)
@@ -376,7 +374,7 @@ class GraphBuilder:
 
         result = self.get_subgraph_info(largest_dense_nodes, feature_embeddings)
 
-        result["deduplication_stats"] = dedup_stats
+        result["deduplication_stats"] = 0
 
         return result
 
