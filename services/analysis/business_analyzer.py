@@ -196,7 +196,6 @@ class BusinessAnalyzer:
             for target in target_profiles
         }
 
-
     async def _process_single_batch(
         self, batch_targets: List[str], comparison_profiles: List[str], category: str
     ) -> Dict[str, Dict[str, float]]:
@@ -336,9 +335,7 @@ class BusinessAnalyzer:
         for i in range(0, len(uncached_targets), batch_size):
             batch_targets = uncached_targets[i : i + batch_size]
             task = asyncio.create_task(
-                self._process_single_batch(
-                    batch_targets, comparison_profiles, category
-                )
+                self._process_single_batch(batch_targets, comparison_profiles, category)
             )
             tasks.append((task, batch_targets))
 
