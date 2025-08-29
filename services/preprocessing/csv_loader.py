@@ -35,12 +35,11 @@ class CSVLoader:
     def filter_incomplete_rows(self, df: pd.DataFrame) -> pd.DataFrame:
         """Filter out rows with empty essential columns"""
 
-        # Define essential columns that must be non-empty
         essential_columns = [
             "Person Name",
             "Person Title",
             "Person Company",
-            "Linkedin URL",
+            "LinkedIn URL",
             "Professional Identity - Role Specification",
             "Professional Identity - Experience Level",
             "Company Identity - Industry Classification",
