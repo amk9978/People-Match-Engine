@@ -63,6 +63,26 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
                 message = json.loads(data)
                 if message.get("type") == "ping":
                     await websocket.send_text(json.dumps({"type": "pong"}))
+                elif message.get("type") == "resume_job":
+                    job_id = message.get("job_id")
+                    if job_id:
+                        job = job_service.get_job(job_id)
+                        if job:
+                            await notification_service.send_personal_message(
+                                {
+                                    "type": "job_update",
+                                    "job_id": job_id,
+                                    "status": job.status.value,
+                                    "progress": str(job.progress) if job.progress is not None else None,
+                                    "result": job.result.result_data if job.result and job.status.value == "completed" else None
+                                }, 
+                                client_id
+                            )
+                            logger.info(f"Client {client_id} resumed monitoring job {job_id}")
+                        else:
+                            await notification_service.send_personal_message(
+                                {"type": "error", "message": f"Job {job_id} not found"}, client_id
+                            )
                 else:
                     await notification_service.send_personal_message(
                         {"type": "echo", "message": f"Received: {data}"}, client_id

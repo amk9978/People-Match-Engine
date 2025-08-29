@@ -59,15 +59,29 @@ class MatrixBuilder:
             # Process batch results
             for target_profile in profiles_list:
                 if target_profile in batch_results:
-                    # Remove self-comparison (set to 0)
-                    profile_scores = batch_results[target_profile].copy()
-                    if target_profile in profile_scores:
-                        profile_scores[target_profile] = 0.0  # Self-comparison
+                    batch_result = batch_results[target_profile]
+                    
+                    # Handle malformed batch result (should be dict, not float)
+                    if isinstance(batch_result, dict):
+                        # Remove self-comparison (set to 0)
+                        profile_scores = batch_result.copy()
+                        if target_profile in profile_scores:
+                            profile_scores[target_profile] = 0.0  # Self-comparison
 
-                    causal_graph[category][target_profile] = profile_scores
-                    logger.info(
-                        f"  ✓ {target_profile}: got {len(profile_scores)} relationships"
-                    )
+                        causal_graph[category][target_profile] = profile_scores
+                        logger.info(
+                            f"  ✓ {target_profile}: got {len(profile_scores)} relationships"
+                        )
+                    else:
+                        # Fallback for malformed batch result (float instead of dict)
+                        logger.warning(f"  ⚠️ Batch result for {target_profile} is {type(batch_result).__name__}, expected dict. Using fallback.")
+                        other_profiles_only = [
+                            p for p in profiles_list if p != target_profile
+                        ]
+                        causal_graph[category][target_profile] = {
+                            profile: 0.5 for profile in other_profiles_only
+                        }
+                        logger.info(f"  ⚠️ {target_profile}: using fallback scores")
                 else:
                     # Fallback for missing profiles
                     other_profiles_only = [
@@ -131,15 +145,27 @@ class MatrixBuilder:
         # Process batch results
         for target_profile in profile_list:
             if target_profile in batch_results:
-                # Remove self-comparison (set to 0)
-                profile_scores = batch_results[target_profile].copy()
-                if target_profile in profile_scores:
-                    profile_scores[target_profile] = 0.0  # Self-comparison
+                batch_result = batch_results[target_profile]
+                
+                # Handle malformed batch result (should be dict, not float)
+                if isinstance(batch_result, dict):
+                    # Remove self-comparison (set to 0)
+                    profile_scores = batch_result.copy()
+                    if target_profile in profile_scores:
+                        profile_scores[target_profile] = 0.0  # Self-comparison
 
-                matrix[target_profile] = profile_scores
-                logger.info(
-                    f"  ✓ {target_profile}: got {len(profile_scores)} relationships"
-                )
+                    matrix[target_profile] = profile_scores
+                    logger.info(
+                        f"  ✓ {target_profile}: got {len(profile_scores)} relationships"
+                    )
+                else:
+                    # Fallback for malformed batch result (float instead of dict)
+                    logger.warning(f"  ⚠️ Batch result for {target_profile} is {type(batch_result).__name__}, expected dict. Using fallback.")
+                    other_profiles_only = [p for p in profile_list if p != target_profile]
+                    matrix[target_profile] = {
+                        profile: 0.5 for profile in other_profiles_only
+                    }
+                    logger.info(f"  ⚠️ {target_profile}: using fallback scores")
             else:
                 # Fallback for missing profiles
                 other_profiles_only = [p for p in profile_list if p != target_profile]

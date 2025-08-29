@@ -718,7 +718,11 @@
         let currentStep = 0;
 
         function connectWebSocket() {
-            const clientId = 'web_client_' + Math.random().toString(36).substr(2, 9);
+            let clientId = localStorage.getItem('ws_client_id');
+            if (!clientId) {
+                clientId = 'web_client_' + Math.random().toString(36).substr(2, 9);
+                localStorage.setItem('ws_client_id', clientId);
+            }
             const wsUrl = `ws://54.242.164.134:8000/ws/${clientId}`;
 
             websocket = new WebSocket(wsUrl);
@@ -728,6 +732,14 @@
                 logMessage('🔗 WebSocket connected successfully!', 'success');
                 reconnectAttempts = 0;
                 startHeartbeat();
+                
+                if (currentJobId) {
+                    logMessage(`🔄 Resuming job monitoring: ${currentJobId.substring(0, 8)}`, 'info');
+                    websocket.send(JSON.stringify({
+                        type: 'resume_job',
+                        job_id: currentJobId
+                    }));
+                }
             };
 
             websocket.onmessage = function(event) {
