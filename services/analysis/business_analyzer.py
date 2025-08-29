@@ -26,6 +26,7 @@ class BusinessAnalyzer:
             api_key=os.getenv("OPENAI_API_KEY"), timeout=30.0
         )
         self.cache = app_cache_service
+        self.batch_delay = float(os.getenv("ANALYZER_BATCH_DELAY", "1.0"))
 
     def _parse_chatgpt_response(
         self, result_text: str, comparison_tags: List[str]
@@ -271,10 +272,16 @@ CRITICAL: Return ONLY valid JSON, no explanations. Use exact target profile name
             )
             tasks.append((task, batch_targets))
 
-        # Execute all batches concurrently and gather results
-        batch_results_list = await asyncio.gather(
-            *[task for task, _ in tasks], return_exceptions=True
-        )
+        # Execute batches with delay between them
+        batch_results_list = []
+        for i, (task, batch_targets) in enumerate(tasks):
+            if i > 0:
+                await asyncio.sleep(self.batch_delay)
+            try:
+                batch_result = await task
+                batch_results_list.append(batch_result)
+            except Exception as e:
+                batch_results_list.append(e)
 
         # Process results and handle exceptions
         for (task, batch_targets), batch_result in zip(tasks, batch_results_list):

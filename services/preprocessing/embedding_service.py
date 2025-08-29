@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 from typing import List
@@ -19,6 +20,7 @@ class EmbeddingService:
     def __init__(self):
         self.openai_client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         self.cache = RedisEmbeddingCache()
+        self.batch_delay = float(os.getenv("EMBEDDING_BATCH_DELAY", "1.0"))
 
     async def get_embedding(self, text: str) -> List[float]:
         """Get embedding with caching, returns List[float] for compatibility"""
@@ -111,6 +113,9 @@ class EmbeddingService:
                 logger.info(
                     f"Successfully processed batch of {len(batch_texts)} embeddings"
                 )
+                
+                if batch_end < len(uncached_texts):
+                    await asyncio.sleep(self.batch_delay)
 
             except Exception as e:
                 logger.info(f"Error in batch embedding request: {e}")
