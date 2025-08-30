@@ -122,11 +122,11 @@ FEATURES EXPLANATION:
 - persona: Professional personality, working style, leadership traits
 
 WEIGHT INTERPRETATION:
-- SIMILARITY weights: Higher = prefer people with similar traits (team cohesion, cultural fit, similar roles, similar seniority)
-- COMPLEMENTARITY weights: Higher = prefer people with different traits (skill diversity, covering gaps, mentorship chances, cross-business partnerships)
+- SIMILARITY weights: Calculated based on the cosine similarity. Higher = prefer people with similar traits (team cohesion, cultural fit, similar roles, similar seniority)
+- COMPLEMENTARITY weights: Calculated based on the casuality relationships. Higher = prefer people with completing traits (skill diversity, covering gaps, mentorship chances, cross-business partnerships)
 
 USER INTENT EXAMPLES:
-- "I want to maximising the hiring chance" → Higher complementarity for roles/experience (diverse skills), higher similarity for industry/market (same domain focus)
+- "I want to maximising the hiring chance" → Higher complementarity for roles/experience, higher similarity for industry/market (same domain focus)
 - "I want to maximising the peer networking" → Higher similarity across all features (find similar professionals)
 - "I want to maximising the business partnerships" → Higher complementarity for market/offering (different customer bases), similarity for industry (same domain)
 
@@ -134,13 +134,13 @@ DATASET INSIGHTS USAGE:
 The dataset insights tell you the actual diversity/similarity patterns in the data:
 
 - "extremely diverse" → People are very different, similarity matching has limited value, focus on complementarity 
-- "very homogeneous" → People are very similar, complementarity matching has limited value, focus on similarity
+- "very homogeneous" → People are very similar, similarity matching has limited value, focus on complementarity
 - "excellent matching opportunities" → High potential for successful matches, can use higher weights
 - "limited matching opportunities" → Low potential for matches, use lower weights
 
 WEIGHT ADJUSTMENT RULES:
 - For "extremely diverse" features → Lower similarity weights (0.3-0.8), higher complementarity weights (1.2-2.0)
-- For "very homogeneous" features → Higher similarity weights (1.2-2.0), lower complementarity weights (0.3-0.8)  
+- For "very homogeneous" features → Lower similarity weights (0.3-0.8), higher complementarity weights (0.3-0.8)  
 - For "limited matching opportunities" → Use lower weights overall (0.5-1.0)
 - For "excellent matching opportunities" → Can use higher weights (1.0-2.0)
 
