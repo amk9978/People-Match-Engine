@@ -23,7 +23,7 @@ def get_envs(env_key: str, cast, default=None) -> str | int | float | bool | Any
     return config(env_key, cast=cast, default=default)
 
 
-OPENAI_TIMEOUT = get_envs("OPENAI_TIMEOUT", cast=float, default=120.0)
+OPENAI_TIMEOUT = get_envs("OPENAI_TIMEOUT", cast=float, default=10.0)
 EMBEDDING_BATCH_DELAY = get_envs("EMBEDDING_BATCH_DELAY", cast=float, default=2.0)
 ANALYZER_BATCH_DELAY = get_envs("ANALYZER_BATCH_DELAY", cast=float, default=0.01)
 OPENAI_API_KEY = get_envs("OPENAI_API_KEY", cast=str, default="")
@@ -32,6 +32,9 @@ MAX_TOKENS = get_envs("MAX_TOKENS", cast=int, default=6000)
 MAX_TOKENS_DEDUP = get_envs("MAX_TOKENS_DEDUP", cast=int, default=50)
 MAX_TOKENS_TUNING = get_envs("MAX_TOKENS_TUNING", cast=int, default=500)
 TEMPERATURE = get_envs("TEMPERATURE", cast=int, default=0)
+
+JUDGE_MODEL = get_envs("JUDGE_MODEL", cast=str, default="gpt-4o")
+JUDGE_MAX_TOKENS = get_envs("JUDGE_MAX_TOKENS", cast=int, default=2000)
 
 REDIS_URL = get_envs("REDIS_URL", cast=str, default="redis://localhost:6379/0")
 

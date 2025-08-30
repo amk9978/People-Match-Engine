@@ -85,9 +85,11 @@ def combine_edge_weight(
     return e
 
 
-def tune_parameters(prompt: str = None) -> Tuple[Dict[str, float], Dict[str, float]]:
+def tune_parameters(
+    prompt: str = None, insights: str = None
+) -> Tuple[Dict[str, float], Dict[str, float]]:
     """
-    Use ChatGPT to tune similarity and complementarity weights based on user intent.
+    Use ChatGPT to tune similarity and complementarity weights based on user intent and dataset insights.
     Returns (w_s, w_c) - similarity and complementarity weights for each feature.
     Falls back to default weights if ChatGPT fails.
     """
@@ -101,13 +103,15 @@ def tune_parameters(prompt: str = None) -> Tuple[Dict[str, float], Dict[str, flo
     try:
         client = openai.OpenAI(api_key=settings.OPENAI_API_KEY)
 
+        insights_section = f"\n\nDATASET INSIGHTS: {insights}" if insights else ""
+
         chatgpt_prompt = dedent(
             f"""
 You are an expert in professional network analysis and team matching algorithms.
 
-USER INTENT: "{prompt}"
+USER INTENT: "{prompt}"{insights_section}
 
-Based on this user intent, provide optimal weights for similarity and complementarity across 6 professional features.
+Based on this user intent and dataset characteristics, provide optimal weights for similarity and complementarity across 6 professional features.
 
 FEATURES EXPLANATION:
 - role: Job titles, responsibilities, professional functions
@@ -125,6 +129,22 @@ USER INTENT EXAMPLES:
 - "I want to maximising the hiring chance" → Higher complementarity for roles/experience (diverse skills), higher similarity for industry/market (same domain focus)
 - "I want to maximising the peer networking" → Higher similarity across all features (find similar professionals)
 - "I want to maximising the business partnerships" → Higher complementarity for market/offering (different customer bases), similarity for industry (same domain)
+
+DATASET INSIGHTS USAGE:
+The dataset insights tell you the actual diversity/similarity patterns in the data:
+
+- "extremely diverse" → People are very different, similarity matching has limited value, focus on complementarity 
+- "very homogeneous" → People are very similar, complementarity matching has limited value, focus on similarity
+- "excellent matching opportunities" → High potential for successful matches, can use higher weights
+- "limited matching opportunities" → Low potential for matches, use lower weights
+
+WEIGHT ADJUSTMENT RULES:
+- For "extremely diverse" features → Lower similarity weights (0.3-0.8), higher complementarity weights (1.2-2.0)
+- For "very homogeneous" features → Higher similarity weights (1.2-2.0), lower complementarity weights (0.3-0.8)  
+- For "limited matching opportunities" → Use lower weights overall (0.5-1.0)
+- For "excellent matching opportunities" → Can use higher weights (1.0-2.0)
+
+CRITICAL: Adjust weights based on your dataset reality, not generic assumptions
 
 CRITICAL: You must respond with EXACTLY this JSON format:
 {{

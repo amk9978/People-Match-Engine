@@ -23,11 +23,11 @@ FALLBACK_VALUE = settings.FALLBACK_VALUE
 class BusinessAnalyzer:
     """Handles ChatGPT-based business complementarity analysis"""
 
-    def __init__(self):
-        self.openai_client = AsyncOpenAI(
+    def __init__(self, openai_client: AsyncOpenAI = None, cache=None):
+        self.openai_client = openai_client or AsyncOpenAI(
             api_key=settings.OPENAI_API_KEY, timeout=settings.OPENAI_TIMEOUT
         )
-        self.cache = app_cache_service
+        self.cache = cache or app_cache_service
 
     def _parse_chatgpt_response(
         self, result_text: str, comparison_tags: List[str]
@@ -291,7 +291,7 @@ class BusinessAnalyzer:
         target_profiles: str,
         comparison_profiles: List[str],
         category: str,
-        batch_size: int = 4,
+        batch_size: int = 8,
     ) -> Dict[str, float]: ...
 
     @overload
@@ -300,7 +300,7 @@ class BusinessAnalyzer:
         target_profiles: List[str],
         comparison_profiles: List[str],
         category: str,
-        batch_size: int = 4,
+        batch_size: int = 8,
     ) -> Dict[str, Dict[str, float]]: ...
 
     async def get_profile_complementarity(
@@ -308,7 +308,7 @@ class BusinessAnalyzer:
         target_profiles: Union[str, List[str]],
         comparison_profiles: List[str],
         category: str,
-        batch_size: int = 4,
+        batch_size: int = 8,
     ) -> Union[Dict[str, float], Dict[str, Dict[str, float]]]:
         """Get complementarity scores for single or multiple target profiles in batched requests"""
 

@@ -13,8 +13,8 @@ logger = logging.getLogger(__name__)
 class JobService:
     """Job service with Redis operations"""
 
-    def __init__(self):
-        self.cache = RedisCache()
+    def __init__(self, cache: RedisCache = None):
+        self.cache = cache or RedisCache()
         self.job_prefix = "job:"
         self.job_result_prefix = "job_result:"
         self.user_jobs_prefix = "user_jobs:"

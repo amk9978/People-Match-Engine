@@ -18,8 +18,8 @@ logger = logging.getLogger(__name__)
 class FileService:
     """File service with versioning and Redis operations"""
 
-    def __init__(self):
-        self.cache = RedisCache()
+    def __init__(self, cache: RedisCache = None):
+        self.cache = cache or RedisCache()
         self.file_prefix = "file:"
         self.file_version_prefix = "file_version:"
         self.user_files_prefix = "user_files:"

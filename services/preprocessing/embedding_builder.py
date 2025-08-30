@@ -7,7 +7,8 @@ from typing import Dict, List
 import numpy as np
 import pandas as pd
 
-from services.preprocessing.fast_embedding_service import fast_embedding_service
+from services.preprocessing.embedding_interface import EmbeddingServiceProtocol
+from services.preprocessing.fast_embedding_service import FastEmbeddingService
 from services.preprocessing.semantic_person_deduplicator import (
     SemanticPersonDeduplicator,
 )
@@ -25,9 +26,15 @@ logger = logging.getLogger(__name__)
 class EmbeddingBuilder:
     """Handles feature embedding generation with caching and deduplication"""
 
-    def __init__(self):
-        self.cache = app_cache_service
-        self.person_deduplicator = SemanticPersonDeduplicator()
+    def __init__(
+        self,
+        cache=None,
+        person_deduplicator: SemanticPersonDeduplicator = None,
+        embedding_service: EmbeddingServiceProtocol = None,
+    ):
+        self.cache = cache or app_cache_service
+        self.person_deduplicator = person_deduplicator or SemanticPersonDeduplicator()
+        self.embedding_service = embedding_service or FastEmbeddingService()
 
     async def extract_and_deduplicate_tags(self, text: str, category: str) -> List[str]:
         """Extract tags and apply semantic deduplication for any feature category"""
@@ -40,7 +47,7 @@ class EmbeddingBuilder:
 
     async def get_cached_embedding(self, tag: str) -> List[float]:
         """Get embedding using shared embedding service"""
-        return await fast_embedding_service.get_embedding(tag)
+        return await self.embedding_service.get_embedding(tag)
 
     async def extract_business_tags_for_person(self, row) -> Dict[str, List[str]]:
         """Extract deduplicated business tags for a person for causal analysis"""

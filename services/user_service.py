@@ -9,8 +9,8 @@ from services.redis.redis_cache import RedisCache
 class UserService:
     """Clean user service with proper separation of concerns"""
 
-    def __init__(self):
-        self.cache = RedisCache()
+    def __init__(self, cache: RedisCache = None):
+        self.cache = cache or RedisCache()
         self.user_stats_prefix = "user_stats:"
         self.user_files_prefix = "user_files:"
         self.user_jobs_prefix = "user_jobs:"

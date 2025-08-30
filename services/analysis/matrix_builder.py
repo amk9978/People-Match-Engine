@@ -2,12 +2,19 @@ import logging
 import sys
 from typing import Dict, Set
 
+import numpy as np
 import pandas as pd
 
 from services.analysis.business_analyzer import BusinessAnalyzer
+from services.analysis.dataset_insights import DatasetInsightsAnalyzer
 from services.preprocessing.tag_extractor import tag_extractor
 from services.redis.app_cache_service import app_cache_service
-from shared.shared import BUSINESS_FEATURES, FEATURE_COLUMN_MAPPING, FeatureNames
+from shared.shared import (
+    BUSINESS_FEATURES,
+    FEATURE_COLUMN_MAPPING,
+    FEATURES,
+    FeatureNames,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -20,9 +27,15 @@ logger = logging.getLogger(__name__)
 class MatrixBuilder:
     """Handles building complementarity matrices using row-based caching via AppCacheService"""
 
-    def __init__(self):
-        self.cache = app_cache_service
-        self.business_analyzer = BusinessAnalyzer()
+    def __init__(
+        self,
+        cache=None,
+        business_analyzer: BusinessAnalyzer = None,
+        insight_analyzer: DatasetInsightsAnalyzer = None,
+    ):
+        self.cache = cache or app_cache_service
+        self.business_analyzer = business_analyzer or BusinessAnalyzer()
+        self.insight_analyzer = insight_analyzer or DatasetInsightsAnalyzer()
         self._matrices = {}
         self._person_tags_cache = {}
 
@@ -248,6 +261,30 @@ class MatrixBuilder:
             logger.info(f"Loaded {category} matrix with {len(matrix_data)} profiles")
 
         logger.info("✅ All matrices loaded into memory")
+
+    def get_complementarity_matrices(self) -> Dict[str, np.ndarray]:
+        """Convert complementarity matrices to numpy arrays for analysis"""
+        numpy_matrices = {}
+
+        for feature in FEATURES:
+            if feature in self._matrices:
+                matrix_dict = self._matrices[feature]
+
+                people_names = list(matrix_dict.keys())
+                size = len(people_names)
+                numpy_matrix = np.zeros((size, size))
+
+                for i, person_i in enumerate(people_names):
+                    for j, person_j in enumerate(people_names):
+                        if person_j in matrix_dict[person_i]:
+                            numpy_matrix[i, j] = matrix_dict[person_i][person_j]
+
+                normalized_matrix = self.insight_analyzer.normalize_matrix(
+                    numpy_matrix, preserve_diagonal=False
+                )
+                numpy_matrices[feature] = normalized_matrix
+
+        return numpy_matrices
 
     def _get_complementarity_score(
         self, person_i: int, person_j: int, category: str

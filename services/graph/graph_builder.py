@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 
 import settings
+from services.analysis.dataset_insights import DatasetInsightsAnalyzer
 from services.analysis.matrix_builder import MatrixBuilder
 from services.analysis.subgraph_analyzer import SubgraphAnalyzer
 from services.graph.scoring.generalized_mean import combine_edge_weight, tune_parameters
@@ -26,7 +27,18 @@ logger = logging.getLogger(__name__)
 class GraphBuilder:
     """Handles NetworkX graph construction and dense subgraph algorithms"""
 
-    def __init__(self, csv_path: str, min_density: float = None):
+    def __init__(
+        self,
+        csv_path: str,
+        min_density: float = None,
+        csv_loader: CSVLoader = None,
+        embedding_builder: EmbeddingBuilder = None,
+        similarity_calc: SimilarityCalculator = None,
+        matrix_builder: MatrixBuilder = None,
+        subgraph_analyzer: SubgraphAnalyzer = None,
+        cache: RedisEmbeddingCache = None,
+        insight_analyzer: DatasetInsightsAnalyzer = None,
+    ):
         self.csv_path = csv_path
         self.min_density = min_density or settings.MIN_DENSITY
         self.graph = None
@@ -34,12 +46,13 @@ class GraphBuilder:
         self.tuned_w_s = DEFAULT_FEATURE_WEIGHTS.copy()
         self.tuned_w_c = OPTIMIZED_FEATURE_WEIGHTS.copy()
 
-        self.csv_loader = CSVLoader(csv_path)
-        self.embedding_builder = EmbeddingBuilder()
-        self.similarity_calc = SimilarityCalculator()
-        self.matrix_builder = MatrixBuilder()
-        self.subgraph_analyzer = SubgraphAnalyzer()
-        self.cache = RedisEmbeddingCache(key_prefix="graph_cache")
+        self.csv_loader = csv_loader or CSVLoader(csv_path)
+        self.embedding_builder = embedding_builder or EmbeddingBuilder()
+        self.similarity_calc = similarity_calc or SimilarityCalculator()
+        self.matrix_builder = matrix_builder or MatrixBuilder()
+        self.subgraph_analyzer = subgraph_analyzer or SubgraphAnalyzer()
+        self.cache = cache or RedisEmbeddingCache(key_prefix="graph_cache")
+        self.insights_analyzer = insight_analyzer or DatasetInsightsAnalyzer()
 
         self.GRAPH_PREFIX = "networkx_graph"
         self.EMBEDDINGS_PREFIX = "feature_embeddings"
@@ -202,7 +215,18 @@ class GraphBuilder:
         await self.matrix_builder.precompute_person_tags(
             self.df, self.embedding_builder
         )
-        w_s, w_c = tune_parameters(prompt=user_prompt)
+
+        similarity_matrices = self.similarity_calc.get_similarity_matrices()
+        complementarity_matrices = self.matrix_builder.get_complementarity_matrices()
+
+        feature_insights = self.insights_analyzer.analyze_feature_matrices(
+            similarity_matrices, complementarity_matrices
+        )
+        dataset_context = self.insights_analyzer.generate_context_summary(
+            feature_insights
+        )
+
+        w_s, w_c = tune_parameters(prompt=user_prompt, insights=dataset_context)
 
         self.tuned_w_s = w_s
         self.tuned_w_c = w_c

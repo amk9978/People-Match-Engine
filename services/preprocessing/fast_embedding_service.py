@@ -149,7 +149,3 @@ class FastEmbeddingService(EmbeddingServiceProtocol):
             f"Batch embedding complete: {len(results)} total embeddings returned"
         )
         return results
-
-
-# Global instance for easy import
-fast_embedding_service = FastEmbeddingService()

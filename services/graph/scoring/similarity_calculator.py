@@ -1,9 +1,10 @@
 import logging
-from typing import Dict, Optional
+from typing import Dict
 
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 
+from services.analysis.dataset_insights import DatasetInsightsAnalyzer
 from shared.shared import FEATURES
 
 logger = logging.getLogger(__name__)
@@ -12,8 +13,9 @@ logger = logging.getLogger(__name__)
 class SimilarityCalculator:
     """Handles all similarity calculations for features"""
 
-    def __init__(self):
+    def __init__(self, insight_analyzer: DatasetInsightsAnalyzer = None):
         self._cached_matrices = {}
+        self.insight_analyzer = insight_analyzer or DatasetInsightsAnalyzer()
 
     def precompute_similarity_matrices(
         self, feature_embeddings: Dict[str, np.ndarray]
@@ -25,8 +27,11 @@ class SimilarityCalculator:
 
         for feature_name in feature_names:
             if feature_name in feature_embeddings:
-                self._cached_matrices[feature_name] = cosine_similarity(
-                    feature_embeddings[feature_name]
+                raw_matrix = cosine_similarity(feature_embeddings[feature_name])
+                self._cached_matrices[feature_name] = (
+                    self.insight_analyzer.normalize_matrix(
+                        raw_matrix, preserve_diagonal=True
+                    )
                 )
 
     def get_similarity_score(
@@ -36,6 +41,14 @@ class SimilarityCalculator:
         if feature_name in self._cached_matrices:
             return self._cached_matrices[feature_name][person_i][person_j]
         return 0.0
+
+    def get_similarity_matrices(self) -> Dict[str, np.ndarray]:
+        """Get all precomputed similarity matrices"""
+        return {
+            feature: matrix
+            for feature, matrix in self._cached_matrices.items()
+            if feature in FEATURES
+        }
 
     def get_all_similarities(self, person_i: int, person_j: int) -> Dict[str, float]:
         """Get all similarity scores between two people"""

@@ -38,7 +38,6 @@ class NotificationService:
         """Broadcast job update to all connected clients"""
         message = {"type": "job_update", "job_id": job_id, **update}
 
-        # Send to all connected clients
         disconnected_clients = []
         for client_id, websocket in self.active_connections.items():
             try:
@@ -47,7 +46,6 @@ class NotificationService:
                 logger.info(f"Error broadcasting to {client_id}: {e}")
                 disconnected_clients.append(client_id)
 
-        # Clean up disconnected clients
         for client_id in disconnected_clients:
             self.disconnect(client_id)
 
@@ -57,6 +55,3 @@ class NotificationService:
             "active_connections": list(self.active_connections.keys()),
             "total_connections": len(self.active_connections),
         }
-
-
-notification_service = NotificationService()

@@ -8,6 +8,7 @@ from typing import Dict, Optional
 import pandas as pd
 
 from models.job import JobConfiguration, JobResult, JobStatus, JobType
+from services.file_service import FileService
 from services.graph.graph_builder import GraphBuilder
 from services.job_service import JobService
 from services.redis.redis_cache import RedisEmbeddingCache
@@ -20,22 +21,26 @@ logger = logging.getLogger(__name__)
 class AnalysisService:
     """Service for handling graph analysis operations"""
 
-    def __init__(self):
-        self.results_cache = RedisEmbeddingCache(key_prefix="job_results")
-        self.job_service = JobService()
-
-    def _store_file_mapping(self, file_id: str, filename: str):
-        """Legacy method - file mappings now handled by FileService"""
-
-        pass
+    def __init__(
+        self,
+        job_service: JobService = None,
+        file_service: FileService = None,
+        results_cache: RedisEmbeddingCache = None,
+        matrix_cache: RedisEmbeddingCache = None,
+        graph_cache: RedisEmbeddingCache = None,
+    ):
+        self.job_service = job_service or JobService()
+        self.file_service = file_service or FileService()
+        self.results_cache = results_cache or RedisEmbeddingCache(
+            key_prefix="job_results"
+        )
+        self.matrix_cache = matrix_cache or RedisEmbeddingCache()
+        self.graph_cache = graph_cache or RedisEmbeddingCache(key_prefix="graph_cache")
 
     def get_filename_by_file_id(self, file_id: str) -> Optional[str]:
         """Get filename by file_id - now uses FileService"""
         try:
-            from services.file_service import FileService
-
-            file_service = FileService()
-            file_obj = file_service.get_file(file_id)
+            file_obj = self.file_service.get_file(file_id)
             return file_obj.filename if file_obj else None
         except Exception as e:
             logger.info(
@@ -46,10 +51,7 @@ class AnalysisService:
     def get_file_id_by_filename(self, user_id: str, filename: str) -> Optional[str]:
         """Get file_id by filename - now uses FileService"""
         try:
-            from services.file_service import FileService
-
-            file_service = FileService()
-            file_obj = file_service.get_file_by_name(user_id, filename)
+            file_obj = self.file_service.get_file_by_name(user_id, filename)
             return file_obj.file_id if file_obj else None
         except Exception as e:
             logger.info(
@@ -60,8 +62,6 @@ class AnalysisService:
     def _store_job_result(self, job_id: str, result: Dict):
         """Store completed job result in Redis"""
         try:
-            import json
-
             cache_key = f"result_{job_id}"
             self.results_cache.set(cache_key, json.dumps(result))
         except Exception as e:
@@ -186,7 +186,6 @@ class AnalysisService:
     def _clear_specific_graph_caches(self, job_id: str):
         """Clear only specific graph-related caches, preserve job metadata"""
         try:
-            graph_cache = RedisEmbeddingCache(key_prefix="graph_cache")
 
             # Only clear specific graph cache keys, not all job_id patterns
             specific_keys = [
@@ -199,7 +198,7 @@ class AnalysisService:
 
             cleared_count = 0
             for key in specific_keys:
-                if graph_cache.delete(key) > 0:
+                if self.graph_cache.delete(key) > 0:
                     cleared_count += 1
 
             logger.info(f"🗑️ Cleared {cleared_count} specific graph cache entries")
@@ -210,7 +209,6 @@ class AnalysisService:
     def _clear_specific_matrix_caches(self, job_id: str):
         """Clear only matrix caches, preserve everything else"""
         try:
-            matrix_cache = RedisEmbeddingCache()
             matrix_keys = [
                 f"causal_graph_complete_{job_id}",
                 f"persona_complementarity_matrix_complete_{job_id}",
@@ -220,7 +218,7 @@ class AnalysisService:
 
             cleared_count = 0
             for key in matrix_keys:
-                if matrix_cache.delete(key) > 0:
+                if self.matrix_cache.delete(key) > 0:
                     cleared_count += 1
         except Exception as e:
             logger.warning(f"Error clearing specific matrix caches: {e}")
@@ -260,13 +258,12 @@ class AnalysisService:
     ):
         """Validate a single complementarity matrix, removing invalid rows"""
         try:
-            matrix_cache = RedisEmbeddingCache()
             if matrix_type in BUSINESS_FEATURES:
                 cache_key = f"causal_graph_complete_{job_id}"
             else:
                 cache_key = f"{matrix_type}_complementarity_matrix_complete_{job_id}"
 
-            cached_data = matrix_cache.get(cache_key)
+            cached_data = self.matrix_cache.get(cache_key)
             if not cached_data:
                 logger.info(
                     f"No cached matrix found for {matrix_type}, skipping validation"
@@ -282,7 +279,7 @@ class AnalysisService:
                 )
                 if len(valid_profiles) != len(category_data):
                     matrix_data[matrix_type] = valid_profiles
-                    matrix_cache.set(cache_key, json.dumps(matrix_data))
+                    self.matrix_cache.set(cache_key, json.dumps(matrix_data))
                     removed = len(category_data) - len(valid_profiles)
                     logger.info(
                         f"🔄 Updated {matrix_type} matrix: removed {removed} invalid profiles"
@@ -292,7 +289,7 @@ class AnalysisService:
                     matrix_data, current_profiles
                 )
                 if len(valid_profiles) != len(matrix_data):
-                    matrix_cache.set(cache_key, json.dumps(valid_profiles))
+                    self.matrix_cache.set(cache_key, json.dumps(valid_profiles))
                     removed = len(matrix_data) - len(valid_profiles)
                     logger.info(
                         f"🔄 Updated {matrix_type} matrix: removed {removed} invalid profiles"
@@ -300,7 +297,7 @@ class AnalysisService:
 
         except Exception as e:
             logger.warning(f"Failed to validate {matrix_type} matrix: {e}")
-            matrix_cache.delete(cache_key)
+            self.matrix_cache.delete(cache_key)
             logger.info(
                 f"🗑️ Removed entire {matrix_type} matrix due to validation failure"
             )
@@ -550,6 +547,3 @@ class AnalysisService:
             logger.error(f"Analysis failed for user {user_id}, file {filename}: {e}")
             job_service.update_job_status(job_id, JobStatusEnum.FAILED, str(e))
             raise
-
-
-analysis_service = AnalysisService()

@@ -21,14 +21,54 @@ from fastapi.responses import FileResponse
 
 import settings  # noqa: F401, F403
 from presentation.models import AnalysisResponse, JobStatus
-from services.analysis_service import analysis_service
+from services.analysis_service import AnalysisService
 from services.file_service import FileService
 from services.job_service import JobService
-from services.notification_service import notification_service
+from services.notification_service import NotificationService
+from services.redis.redis_cache import RedisCache, RedisEmbeddingCache
 from services.user_service import UserService
 
 load_dotenv()
 logger = logging.getLogger(__name__)
+
+
+def create_services():
+    """Create all services with proper dependency injection"""
+
+    redis_cache = RedisCache()
+    results_cache = RedisEmbeddingCache(key_prefix="job_results")
+    matrix_cache = RedisEmbeddingCache()
+    graph_cache = RedisEmbeddingCache(key_prefix="graph_cache")
+
+    job_service = JobService(cache=redis_cache)
+    file_service = FileService(cache=redis_cache)
+    user_service = UserService(cache=redis_cache)
+
+    analysis_service = AnalysisService(
+        job_service=job_service,
+        file_service=file_service,
+        results_cache=results_cache,
+        matrix_cache=matrix_cache,
+        graph_cache=graph_cache,
+    )
+
+    notification_service = NotificationService()
+
+    return {
+        "user_service": user_service,
+        "file_service": file_service,
+        "job_service": job_service,
+        "analysis_service": analysis_service,
+        "notification_service": notification_service,
+    }
+
+
+services = create_services()
+user_service = services["user_service"]
+file_service = services["file_service"]
+job_service = services["job_service"]
+analysis_service = services["analysis_service"]
+notification_service = services["notification_service"]
 
 app = FastAPI(
     title="Graph Matcher API",
@@ -43,10 +83,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-user_service = UserService()
-file_service = FileService()
-job_service = JobService()
 
 
 @app.websocket("/ws/{client_id}")
