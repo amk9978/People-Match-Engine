@@ -27,7 +27,7 @@ capabilities.
 to find the most strategically valuable professional communities. Unlike simple similarity matching, our system
 understands the **complementary value** of professional relationships.
 
-### 🎪 **The Magic Behind the System**
+### 🎪 **Behind the System**
 
 1. **🔍 Intelligent Data Processing** - Uploads professional CSV data with automatic deduplication and tag extraction
 2. **🤖 AI-Powered Complementarity Analysis** - ChatGPT analyzes complete professional profiles to score strategic
