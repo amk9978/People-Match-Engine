@@ -244,6 +244,7 @@ Access the **interactive OpenAPI documentation** at `http://localhost:8000/docs`
 ## 🔮 Future Roadmap
 
 - Swap ChatGPT as a judge with simpler and faster models
+- Dynamic columns support
 - Extend the list of features
 - Add human feedbacks to the system (RLHF)
 - Use GPU for matrices and graph operations instead of CPU
