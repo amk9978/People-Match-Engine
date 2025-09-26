@@ -1,12 +1,12 @@
-# 🎯 Match Engine
+# 🤝 Match Engine
 
 [![CI/CD Pipeline](https://github.com/amk9978/people_match_engine/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/amk9978/people_match_engine/actions/workflows/ci-cd.yml)
 
-## Are you a meeting moderator? Would you like to connect professionals? Here's your tool!
+## Find the best connections between people — an AI-powered matching engine for events, recruiting, and communities.
 
 **Enterprise-grade Professional Network Analysis Platform**
 
-[Try Here!](http://54.242.164.134:8000/)
+[Try the demo](http://54.242.164.134:8000/)
 
 A sophisticated graph-based matching system that discovers optimal professional communities using advanced multi-feature
 similarity and AI-powered complementarity analysis. Built for scalable network intelligence with real-time processing
@@ -20,6 +20,50 @@ capabilities.
 ![1.png](docs/1.png)
 
 ![2.png](docs/2.png)
+
+## 🛠️ Quick Start
+
+### Prerequisites
+
+- Docker & Docker Compose
+- OpenAI API key
+- Redis instance
+
+### Installation
+
+```bash
+git clone https://github.com/amk9978/people_match_engine
+cd match_engine
+
+# Configure environment
+cp .env.example .env
+# Edit .env with your OpenAI API key and Redis config
+
+# Launch the system
+docker compose up -d
+```
+
+### Usage Example
+
+```bash
+curl -X POST "http://localhost:8000/analyze" \
+  -H "X-User-ID: startup_founder" \
+  -F "file=@team_candidates.csv" \
+  -F "prompt=I'm building a fintech startup and need complementary technical and business expertise"
+```
+
+Sample dataset input:
+```
+|Person Name  |Person Title           |Person Company  |LinkedIn URL                            |Professional Identity - Role Specification                                                                                                         |Professional Identity - Experience Level                                                                                                                       |Company Identity - Industry Classification                                                                                                 |Company Market - Market Traction                                                                                                                          |Company Offering - Value Proposition                                                                                                                      |All Persona Titles                             |
+|-------------|-----------------------|----------------|----------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------|
+|Gaurav Bharaj|Co-Founder / AI        |Reality Defender|https://www.linkedin.com/in/gauravbharaj|Co-Founder & Head of AI &#124; C-Suite Executive Level &#124; AI Research Strategy and Team Leadership &#124; Strategic Technology and Research Decision Authority|15+ Years Total Experience &#124; Academic Research to Executive Progression &#124; 4+ Years Leadership Roles &#124; Deep Computer Vision AI Specialization                   |Artificial Intelligence Security &#124; Deepfake Detection Technology &#124; Multimodal Synthetic Media Detection &#124; Financial Services and Government|Government and Enterprise Customers &#124; Early Adopter Market Penetration &#124; Series A $33M Funding Growth &#124; North America Primary with International Expansion|Real-Time Deepfake Detection &#124; 98.6% Detection Accuracy Rate &#124; Eliminates Synthetic Media Fraud Risk &#124; Multimodal Analysis Versus Single-Channel Detection|Fortune 500 Chief Information Security Officers; AI Governance Policy Architects; Cloud Security Platform Leaders; Hypergrowth AI Company Veterans; Government Technology Integration Specialists|
+|Melanie Erk  |Event Marketing Manager|IBM             |https://www.linkedin.com/in/melanieerk  |Top Account Event Marketing Manager &#124; Senior Management Level &#124; Strategic Event Marketing Leadership &#124; Enterprise Account Event Decision Authority |10 Years Total Experience &#124; Individual Contributor to Management Progression &#124; 3 Years Senior Marketing Leadership &#124; Deep Event Marketing Domain Specialization|Information Technology Services & Consulting &#124; Hybrid Cloud and AI Solutions &#124; Enterprise Digital Transformation &#124; Regulated Industries    |270,300 Global Employees &#124; Established Enterprise Market Leader &#124; $62.8 Billion Annual Revenue &#124; Global Presence with Regional Specialization             |Accelerates Digital Transformation &#124; 176% ROI Over Three Years &#124; Eliminates Hybrid Cloud Complexity &#124; Integrated AI and Cloud Versus Point Solutions      |Enterprise CMOs Driving AI Transformation; Event Technology Innovation Leaders; Senior Event Marketing Directors; Marketing Technology Analysts; Executive Event Production Specialists|
+|Ruma nair    |Principal Product Manager|Twilio          |https://www.linkedin.com/in/ruma-n-41b9459/|Principal Product Manager &#124; Senior Individual Contributor Level &#124; AI Product Strategy and Development &#124; Product Roadmap Decision Authority         |6 Years Current Role Experience &#124; Individual Contributor to Senior IC Progression &#124; Product Strategy Leadership Experience &#124; Deep AI and CX Domain Specialization|Cloud Communications Platform &#124; Customer Engagement Technology &#124; AI-Powered Contact Center Solutions &#124; Enterprise Communications           |335000 Active Customer Accounts &#124; Leading CPaaS Market Position &#124; 7% Annual Revenue Growth &#124; Global Presence with North America Dominance                 |Accelerates Customer Engagement &#124; 50% Reduction in Agent Onboarding Time &#124; Eliminates Communication Infrastructure Complexity &#124; API-First Versus Monolithic Platform Advantage|Enterprise CX Transformation Leaders; AI Model Partnership Executives; AI-Native Contact Center Founders; Regulatory AI Compliance Experts; Enterprise AI Investment Analysts|
+
+
+```
+[Sample](docs/sample.csv)
+
 
 ## 🚀 What Makes It Powerful
 
@@ -80,49 +124,6 @@ Graph Building → Dense Subgraph Discovery → Subgraph Analysis → Frontend R
 - **📦 Batch Processing** - Optimized bulk operations for semantic preprocessing
 - **⚡ Async Operations** - Concurrent matrix building and API request handling
 - **🧮 Generalized Mean** - Applies power mean inequality for provably optimal aggregation of multiple similarity scores into edge weights
-
-## 🛠️ Quick Start
-
-### Prerequisites
-
-- Docker & Docker Compose
-- OpenAI API key
-- Redis instance
-
-### Installation
-
-```bash
-git clone https://github.com/amk9978/people_match_engine
-cd match_engine
-
-# Configure environment
-cp .env.example .env
-# Edit .env with your OpenAI API key and Redis config
-
-# Launch the system
-docker compose up -d
-```
-
-### Usage Example
-
-```bash
-curl -X POST "http://localhost:8000/analyze" \
-  -H "X-User-ID: startup_founder" \
-  -F "file=@team_candidates.csv" \
-  -F "prompt=I'm building a fintech startup and need complementary technical and business expertise"
-```
-
-Sample dataset input:
-```
-|Person Name  |Person Title           |Person Company  |LinkedIn URL                            |Professional Identity - Role Specification                                                                                                         |Professional Identity - Experience Level                                                                                                                       |Company Identity - Industry Classification                                                                                                 |Company Market - Market Traction                                                                                                                          |Company Offering - Value Proposition                                                                                                                      |All Persona Titles                             |
-|-------------|-----------------------|----------------|----------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------|
-|Gaurav Bharaj|Co-Founder / AI        |Reality Defender|https://www.linkedin.com/in/gauravbharaj|Co-Founder & Head of AI &#124; C-Suite Executive Level &#124; AI Research Strategy and Team Leadership &#124; Strategic Technology and Research Decision Authority|15+ Years Total Experience &#124; Academic Research to Executive Progression &#124; 4+ Years Leadership Roles &#124; Deep Computer Vision AI Specialization                   |Artificial Intelligence Security &#124; Deepfake Detection Technology &#124; Multimodal Synthetic Media Detection &#124; Financial Services and Government|Government and Enterprise Customers &#124; Early Adopter Market Penetration &#124; Series A $33M Funding Growth &#124; North America Primary with International Expansion|Real-Time Deepfake Detection &#124; 98.6% Detection Accuracy Rate &#124; Eliminates Synthetic Media Fraud Risk &#124; Multimodal Analysis Versus Single-Channel Detection|Fortune 500 Chief Information Security Officers; AI Governance Policy Architects; Cloud Security Platform Leaders; Hypergrowth AI Company Veterans; Government Technology Integration Specialists|
-|Melanie Erk  |Event Marketing Manager|IBM             |https://www.linkedin.com/in/melanieerk  |Top Account Event Marketing Manager &#124; Senior Management Level &#124; Strategic Event Marketing Leadership &#124; Enterprise Account Event Decision Authority |10 Years Total Experience &#124; Individual Contributor to Management Progression &#124; 3 Years Senior Marketing Leadership &#124; Deep Event Marketing Domain Specialization|Information Technology Services & Consulting &#124; Hybrid Cloud and AI Solutions &#124; Enterprise Digital Transformation &#124; Regulated Industries    |270,300 Global Employees &#124; Established Enterprise Market Leader &#124; $62.8 Billion Annual Revenue &#124; Global Presence with Regional Specialization             |Accelerates Digital Transformation &#124; 176% ROI Over Three Years &#124; Eliminates Hybrid Cloud Complexity &#124; Integrated AI and Cloud Versus Point Solutions      |Enterprise CMOs Driving AI Transformation; Event Technology Innovation Leaders; Senior Event Marketing Directors; Marketing Technology Analysts; Executive Event Production Specialists|
-|Ruma nair    |Principal Product Manager|Twilio          |https://www.linkedin.com/in/ruma-n-41b9459/|Principal Product Manager &#124; Senior Individual Contributor Level &#124; AI Product Strategy and Development &#124; Product Roadmap Decision Authority         |6 Years Current Role Experience &#124; Individual Contributor to Senior IC Progression &#124; Product Strategy Leadership Experience &#124; Deep AI and CX Domain Specialization|Cloud Communications Platform &#124; Customer Engagement Technology &#124; AI-Powered Contact Center Solutions &#124; Enterprise Communications           |335000 Active Customer Accounts &#124; Leading CPaaS Market Position &#124; 7% Annual Revenue Growth &#124; Global Presence with North America Dominance                 |Accelerates Customer Engagement &#124; 50% Reduction in Agent Onboarding Time &#124; Eliminates Communication Infrastructure Complexity &#124; API-First Versus Monolithic Platform Advantage|Enterprise CX Transformation Leaders; AI Model Partnership Executives; AI-Native Contact Center Founders; Regulatory AI Compliance Experts; Enterprise AI Investment Analysts|
-
-
-```
-[Sample](docs/sample.csv)
 
 ## 🎨 Core Capabilities
 
