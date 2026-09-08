@@ -202,11 +202,18 @@ class GraphBuilder:
         feature_embeddings: Dict[str, np.ndarray],
         user_prompt: str = None,
     ) -> nx.Graph:
+        assert self.df is not None, "load_data must run before the graph is built"
+        assert self.df.index.equals(pd.RangeIndex(len(self.df))), (
+            "people are addressed by position throughout the pipeline, "
+            "so the loaded frame must be indexed 0..n-1"
+        )
+
         self.graph = nx.Graph()
         num_people = len(self.df)
-        for idx, row in self.df.iterrows():
+        for position in range(num_people):
+            row = self.df.iloc[position]
             self.graph.add_node(
-                idx, name=row["Person Name"], company=row["Person Company"]
+                position, name=row["Person Name"], company=row["Person Company"]
             )
         matrices = await self.matrix_builder.build_all_complementarity_matrices(
             self.csv_path

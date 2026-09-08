@@ -329,13 +329,13 @@ class MatrixBuilder:
 
     async def precompute_person_tags(self, df: pd.DataFrame, embedding_builder) -> None:
         """Precompute all person profile vectors for fast lookups"""
-        logger.info("⚡ Precomputing person profile vectors...")
+        logger.info("Precomputing person profile vectors")
 
-        for idx, row in df.iterrows():
+        for position in range(len(df)):
+            row = df.iloc[position]
             business = embedding_builder.extract_business_tags_for_person(row)
 
-            # Store complete profile vectors as they appear in the dataset
-            self._person_tags_cache[idx] = {
+            self._person_tags_cache[position] = {
                 # Complete profile vectors (raw cell values)
                 "role_profile": str(
                     row.get("Professional Identity - Role Specification", "")

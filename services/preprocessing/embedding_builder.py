@@ -1,27 +1,30 @@
 import asyncio
 import logging
-import sys
-import traceback
-from typing import Dict, List
+from typing import Dict, List, Set
 
 import numpy as np
 import pandas as pd
 
+from services.cache.app_cache_service import app_cache_service
 from services.preprocessing.embedding_interface import EmbeddingServiceProtocol
 from services.preprocessing.fast_embedding_service import FastEmbeddingService
 from services.preprocessing.tag_extractor import tag_extractor
-from services.cache.app_cache_service import app_cache_service
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)],
-)
 logger = logging.getLogger(__name__)
+
+BUSINESS_TAG_COLUMNS = {
+    "industry": "Company Identity - Industry Classification",
+    "market": "Company Market - Market Traction",
+    "offering": "Company Offering - Value Proposition",
+}
 
 
 class EmbeddingBuilder:
-    """Handles feature embedding generation with caching and deduplication"""
+    """Turns one text column per feature into one vector per person.
+
+    People are addressed by position. Row `i` of a feature's matrix is person `i`
+    of the loaded frame, which the loader guarantees is indexed 0..n-1.
+    """
 
     def __init__(
         self,
@@ -31,190 +34,144 @@ class EmbeddingBuilder:
         self.cache = cache or app_cache_service
         self.embedding_service = embedding_service or FastEmbeddingService()
 
+    @property
+    def embedding_dim(self) -> int:
+        return self.embedding_service.embedding_dim
+
     async def get_cached_embedding(self, tag: str) -> List[float]:
-        """Get embedding using shared embedding service"""
         return await self.embedding_service.get_embedding(tag)
 
-    def extract_business_tags_for_person(self, row) -> Dict[str, List[str]]:
+    def extract_business_tags_for_person(self, row: pd.Series) -> Dict[str, List[str]]:
         """Extract business tags for a person for causal analysis"""
         return {
-            "industry": tag_extractor.extract_tags(
-                row["Company Identity - Industry Classification"], "industry"
-            ),
-            "market": tag_extractor.extract_tags(
-                row["Company Market - Market Traction"], "market"
-            ),
-            "offering": tag_extractor.extract_tags(
-                row["Company Offering - Value Proposition"], "offering"
-            ),
+            feature: tag_extractor.extract_tags(row[column], feature)
+            for feature, column in BUSINESS_TAG_COLUMNS.items()
         }
 
     async def embed_features(
         self, df: pd.DataFrame, feature_columns: Dict[str, str]
     ) -> Dict[str, np.ndarray]:
-        """Create OpenAI embeddings for multiple feature categories with row-based caching"""
-        logger.info("Creating feature embeddings with row-based caching...")
+        assert df.index.equals(
+            pd.RangeIndex(len(df))
+        ), "people are addressed by position; the frame must be indexed 0..n-1"
 
         feature_embeddings = {}
-
         for feature_name, column_name in feature_columns.items():
-            logger.info(
-                f"\nProcessing {feature_name} ({column_name}) with row-based caching..."
+            feature_embeddings[feature_name] = await self._embed_one_feature(
+                df, feature_name, column_name
             )
 
-            try:
-                cache_status = self.cache.get_dataset_embedding_cache_status(
-                    df, feature_name
-                )
-
-                if cache_status is None:
-                    logger.error(f"❌ Cache status returned None for {feature_name}")
-                    logger.error(f"❌ Cache object type: {type(self.cache)}")
-                    logger.error(f"❌ Feature name: {feature_name}")
-                    logger.error(f"❌ DataFrame shape: {df.shape}")
-                    logger.error(f"❌ Full traceback: {traceback.format_exc()}")
-                    # Use fallback
-                    cached_embeddings = {}
-                    uncached_indices = list(range(len(df)))
-                else:
-                    cached_embeddings = cache_status.get("cached_embeddings", {})
-                    uncached_indices = cache_status.get(
-                        "uncached_indices", list(range(len(df)))
-                    )
-
-                logger.info(
-                    f"Found {len(cached_embeddings)} cached embeddings, {len(uncached_indices)} need computing"
-                )
-
-                person_feature_embeddings = {}
-                for idx, embedding in cached_embeddings.items():
-                    person_feature_embeddings[idx] = embedding
-
-                if uncached_indices:
-                    logger.info(
-                        f"Computing embeddings for {len(uncached_indices)} uncached people. {feature_name}"
-                    )
-                    valid_uncached_indices = [
-                        idx for idx in uncached_indices if idx < len(df)
-                    ]
-                    all_unique_values = set()
-                    for idx in valid_uncached_indices:
-                        row = df.iloc[idx]
-                        values = tag_extractor.extract_tags(
-                            row[column_name], feature_name
-                        )
-                        all_unique_values.update(values)
-
-                    logger.info(
-                        f"Found {len(all_unique_values)} unique values from uncached people"
-                    )
-
-                    cached_values = {}
-                    uncached_values = []
-                    cache_hits = 0
-
-                    for value in all_unique_values:
-                        if value.strip():
-                            cached_embedding = self.cache.get_text_embedding(value)
-                            if cached_embedding:
-                                cached_values[value] = cached_embedding
-                                cache_hits += 1
-                            else:
-                                uncached_values.append(value)
-                        else:
-                            cached_values[value] = [0.0] * 384
-
-                    logger.info(
-                        f"Text cache hits: {cache_hits}, requests needed: {len(uncached_values)}"
-                    )
-
-                    value_embeddings = cached_values.copy()
-
-                    if uncached_values:
-                        tasks = []
-                        for value in uncached_values:
-                            tasks.append(self.get_cached_embedding(value))
-
-                        embeddings_results = await asyncio.gather(
-                            *tasks, return_exceptions=True
-                        )
-
-                        for value, embedding in zip(
-                            uncached_values, embeddings_results
-                        ):
-                            if isinstance(embedding, Exception):
-                                logger.info(f"Error processing {value}: {embedding}")
-                                value_embeddings[value] = [0.0] * 384
-                            else:
-                                value_embeddings[value] = embedding
-
-                    new_person_embeddings = {}
-                    for idx in valid_uncached_indices:
-                        row = df.iloc[idx]
-                        values = tag_extractor.extract_tags(
-                            row[column_name], feature_name
-                        )
-
-                        if values:
-                            person_value_embeddings = [
-                                value_embeddings[val]
-                                for val in values
-                                if val in value_embeddings
-                            ]
-
-                            if person_value_embeddings:
-                                person_value_embeddings = np.array(
-                                    person_value_embeddings
-                                )
-                                person_embedding = np.sum(
-                                    person_value_embeddings, axis=0
-                                )
-                                norm = np.linalg.norm(person_embedding)
-                                if norm > 0:
-                                    person_embedding = person_embedding / norm
-                            else:
-                                person_embedding = [0.0] * 384
-                        else:
-                            person_embedding = [0.0] * 384
-
-                        person_feature_embeddings[idx] = person_embedding.tolist()
-                        new_person_embeddings[idx] = person_embedding.tolist()
-
-                    self.cache.cache_dataset_embeddings(
-                        df, feature_name, new_person_embeddings
-                    )
-                    logger.info(
-                        f"Cached {len(new_person_embeddings)} new person embeddings"
-                    )
-
-                # Convert dictionary back to array aligned with DataFrame
-                embeddings_array = []
-                for i in df.index:
-                    if i in person_feature_embeddings:
-                        embeddings_array.append(person_feature_embeddings[i])
-                    else:
-                        embeddings_array.append([0.0] * 384)
-                        logger.warning(
-                            f"Warning: No embedding for person at index {i}, using fallback"
-                        )
-
-                    feature_embeddings[feature_name] = np.array(embeddings_array)
-                    logger.info(
-                        f"Created {feature_embeddings[feature_name].shape[1]}D embeddings for {len(person_feature_embeddings)} people"
-                    )
-
-            except Exception as e:
-                logger.error(f"❌ Analysis failed for {feature_name}: {e}")
-                logger.error(f"❌ Exception type: {type(e).__name__}")
-                logger.error(f"❌ Exception details: {str(e)}")
-                logger.error(f"❌ Full traceback: {traceback.format_exc()}")
-
-                # Create fallback embeddings (zero vectors)
-                fallback_embeddings = np.zeros((len(df), 384))
-                feature_embeddings[feature_name] = fallback_embeddings
-                logger.info(f"⚠️  Created fallback zero embeddings for {feature_name}")
-
-        cache_info = self.cache.get_cache_stats()
-        logger.info(f"Redis cache status: {cache_info}")
-
+        logger.info(f"Cache after embedding: {self.cache.get_cache_stats()}")
         return feature_embeddings
+
+    async def _embed_one_feature(
+        self, df: pd.DataFrame, feature_name: str, column_name: str
+    ) -> np.ndarray:
+        cache_status = self.cache.get_dataset_embedding_cache_status(df, feature_name)
+        person_embeddings = dict(cache_status["cached_embeddings"])
+        uncached_positions = cache_status["uncached_indices"]
+
+        if uncached_positions:
+            values = self._collect_values(
+                df, uncached_positions, column_name, feature_name
+            )
+            value_embeddings = await self._embed_values(values)
+
+            computed = {
+                position: self._person_vector(
+                    tag_extractor.extract_tags(
+                        df.iloc[position][column_name], feature_name
+                    ),
+                    value_embeddings,
+                )
+                for position in uncached_positions
+            }
+            person_embeddings.update(computed)
+            self.cache.cache_dataset_embeddings(df, feature_name, computed)
+
+        matrix = self._assemble(df, person_embeddings, feature_name)
+        logger.info(
+            f"Feature {feature_name}: {matrix.shape[0]} people, {matrix.shape[1]} dimensions"
+        )
+        return matrix
+
+    def _collect_values(
+        self,
+        df: pd.DataFrame,
+        positions: List[int],
+        column_name: str,
+        feature_name: str,
+    ) -> Set[str]:
+        values = set()
+        for position in positions:
+            values.update(
+                tag_extractor.extract_tags(df.iloc[position][column_name], feature_name)
+            )
+        return values
+
+    async def _embed_values(self, values: Set[str]) -> Dict[str, List[float]]:
+        """Resolve every distinct tag to a vector, reusing whatever the cache holds."""
+        embeddings = {}
+        missing = []
+
+        for value in values:
+            if not value.strip():
+                embeddings[value] = [0.0] * self.embedding_dim
+                continue
+            cached = self.cache.get_text_embedding(value)
+            if cached:
+                embeddings[value] = cached
+            else:
+                missing.append(value)
+
+        logger.info(
+            f"Tag embeddings: {len(embeddings)} cached, {len(missing)} to compute"
+        )
+
+        if missing:
+            computed = await asyncio.gather(
+                *[self.get_cached_embedding(value) for value in missing],
+                return_exceptions=True,
+            )
+            for value, embedding in zip(missing, computed):
+                if isinstance(embedding, Exception):
+                    logger.error(f"Embedding failed for tag '{value}': {embedding}")
+                    embeddings[value] = [0.0] * self.embedding_dim
+                else:
+                    embeddings[value] = embedding
+
+        return embeddings
+
+    def _person_vector(
+        self, values: List[str], value_embeddings: Dict[str, List[float]]
+    ) -> List[float]:
+        """Sum a person's tag vectors and normalize to unit length."""
+        vectors = [
+            value_embeddings[value] for value in values if value in value_embeddings
+        ]
+        if not vectors:
+            return [0.0] * self.embedding_dim
+
+        summed = np.sum(np.array(vectors), axis=0)
+        norm = np.linalg.norm(summed)
+        if norm > 0:
+            summed = summed / norm
+        return summed.tolist()
+
+    def _assemble(
+        self,
+        df: pd.DataFrame,
+        person_embeddings: Dict[int, List[float]],
+        feature_name: str,
+    ) -> np.ndarray:
+        rows = []
+        for position in range(len(df)):
+            embedding = person_embeddings.get(position)
+            if embedding is None:
+                logger.warning(
+                    f"Feature {feature_name}: no embedding for person at position "
+                    f"{position}, using a zero vector"
+                )
+                embedding = [0.0] * self.embedding_dim
+            rows.append(embedding)
+        return np.array(rows)

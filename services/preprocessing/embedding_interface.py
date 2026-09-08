@@ -6,6 +6,8 @@ import numpy as np
 class EmbeddingServiceProtocol(Protocol):
     """Protocol for embedding services"""
 
+    embedding_dim: int
+
     async def get_embedding(self, text: str) -> List[float]:
         """Get embedding with caching, returns List[float] for compatibility"""
         ...

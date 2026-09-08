@@ -90,17 +90,20 @@ class AppCacheService:
     def get_dataset_embedding_cache_status(
         self, df: pd.DataFrame, feature_type: str
     ) -> Dict[str, Any]:
-        """Split the dataset into people whose embedding is cached and those who need one."""
+        """Split the dataset into people whose embedding is cached and those who need one.
+
+        Both halves are keyed by row position, matching how the rest of the
+        pipeline addresses people."""
         cached_embeddings = {}
         uncached_indices = []
 
-        for idx, row in df.iterrows():
-            row_data = self._extract_row_data(row, feature_type)
+        for position in range(len(df)):
+            row_data = self._extract_row_data(df.iloc[position], feature_type)
             embedding = self.get_person_embedding(row_data, feature_type)
             if embedding:
-                cached_embeddings[idx] = embedding
+                cached_embeddings[position] = embedding
             else:
-                uncached_indices.append(idx)
+                uncached_indices.append(position)
 
         logger.info(
             f"Feature {feature_type}: {len(cached_embeddings)} cached embeddings, "
@@ -117,10 +120,10 @@ class AppCacheService:
     ) -> None:
         cached_count = 0
 
-        for idx, embedding in embeddings.items():
-            if idx not in df.index:
+        for position, embedding in embeddings.items():
+            if position >= len(df):
                 continue
-            row_data = self._extract_row_data(df.loc[idx], feature_type)
+            row_data = self._extract_row_data(df.iloc[position], feature_type)
             if self.set_person_embedding(row_data, feature_type, embedding):
                 cached_count += 1
 
