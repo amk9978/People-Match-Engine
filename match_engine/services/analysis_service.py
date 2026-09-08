@@ -185,6 +185,7 @@ class AnalysisService:
         prompt: Optional[str] = None,
         weights: Optional[ExplicitWeights] = None,
         scoring_profile: Optional[ScoringProfile] = None,
+        scorer_choice: Optional[str] = None,
     ):
         """Run one match through MatchRun, reporting each stage to the job store."""
         try:
@@ -202,6 +203,7 @@ class AnalysisService:
                     min_density=min_density,
                     weights=weights,
                     scoring_profile=scoring_profile,
+                    scorer_choice=scorer_choice,
                 ),
                 progress=JobProgress(self, job_id, notification_service),
             )

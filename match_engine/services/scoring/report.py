@@ -7,8 +7,13 @@ class ScoringReport:
 
     fallback_pairs counts scores the model did not supply, which are filled with
     the neutral value. A run with a high fallback rate is reporting an opinion
-    the model never gave, so the rate travels with the result."""
+    the model never gave, so the rate travels with the result.
 
+    scorer names the implementation behind the numbers. The offline path reports
+    no model calls and no fallbacks, which leaves the rate uninformative on its
+    own, and the name is what tells the two apart."""
+
+    scorer: str = "llm"
     cached_pairs: int = 0
     scored_pairs: int = 0
     fallback_pairs: int = 0
@@ -26,6 +31,7 @@ class ScoringReport:
 
     def merge(self, other: "ScoringReport") -> "ScoringReport":
         return ScoringReport(
+            scorer=other.scorer,
             cached_pairs=self.cached_pairs + other.cached_pairs,
             scored_pairs=self.scored_pairs + other.scored_pairs,
             fallback_pairs=self.fallback_pairs + other.fallback_pairs,
@@ -34,6 +40,7 @@ class ScoringReport:
 
     def to_dict(self) -> dict:
         return {
+            "scorer": self.scorer,
             "cached_pairs": self.cached_pairs,
             "scored_pairs": self.scored_pairs,
             "fallback_pairs": self.fallback_pairs,

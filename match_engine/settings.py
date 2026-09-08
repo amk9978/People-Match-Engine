@@ -43,6 +43,7 @@ MIN_DENSITY = get_envs("MIN_DENSITY", cast=float, default=0.1)
 MAX_FEATURES = get_envs("MAX_FEATURES", cast=int, default=12)
 FEATURE_MAPPING_PATH = get_envs("FEATURE_MAPPING_PATH", cast=str, default="")
 FALLBACK_VALUE = get_envs("FALLBACK_VALUE", cast=float, default=0.5)
+COMPLEMENTARITY_SCORER = get_envs("COMPLEMENTARITY_SCORER", cast=str, default="auto")
 
 DATA_DIR = get_envs("DATA_DIR", cast=str, default="./data")
 

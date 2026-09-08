@@ -2,10 +2,12 @@ import logging
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Protocol
 
+from match_engine.services.analysis.matrix_builder import MatrixBuilder
 from match_engine.services.graph.graph_builder import GraphBuilder
 from match_engine.services.scoring.complementarity_scorer import ComplementarityScorer
 from match_engine.services.scoring.profile import ScoringProfile
 from match_engine.services.scoring.report import ScoringReport
+from match_engine.services.scoring.scorer_factory import create_complementarity_scorer
 from match_engine.services.scoring.weights import (
     ExplicitWeightResolver,
     ExplicitWeights,
@@ -31,6 +33,7 @@ class MatchRequest:
     scoring_profile: Optional[ScoringProfile] = None
     weights: Optional[ExplicitWeights] = None
     scorer: Optional[ComplementarityScorer] = None
+    scorer_choice: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -87,11 +90,13 @@ class MatchRun:
         if request.weights is not None:
             weight_resolver = ExplicitWeightResolver(request.weights)
 
-        matrix_builder = None
-        if request.scorer is not None:
-            from match_engine.services.analysis.matrix_builder import MatrixBuilder
+        scorer = request.scorer
+        if scorer is None and request.scorer_choice is not None:
+            scorer = create_complementarity_scorer(request.scorer_choice)
 
-            matrix_builder = MatrixBuilder(scorer=request.scorer)
+        matrix_builder = None
+        if scorer is not None:
+            matrix_builder = MatrixBuilder(scorer=scorer)
 
         return GraphBuilder(
             csv_path=request.csv_path,

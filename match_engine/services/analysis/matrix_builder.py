@@ -6,8 +6,8 @@ import pandas as pd
 
 from match_engine.services.features.feature_set import FeatureSet
 from match_engine.services.scoring.complementarity_scorer import ComplementarityScorer
-from match_engine.services.scoring.llm_scorer import LLMComplementarityScorer
 from match_engine.services.scoring.report import ScoringReport
+from match_engine.services.scoring.scorer_factory import create_complementarity_scorer
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +25,7 @@ class MatrixBuilder:
     """
 
     def __init__(self, scorer: ComplementarityScorer = None):
-        self.scorer = scorer or LLMComplementarityScorer()
+        self.scorer = scorer or create_complementarity_scorer()
         self.scoring_report = ScoringReport()
         self._profiles: Dict[str, List[str]] = {}
         self._positions: Dict[str, Dict[str, int]] = {}
