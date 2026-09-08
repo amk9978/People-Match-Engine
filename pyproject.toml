@@ -39,11 +39,17 @@ dependencies = [
 
 [project.optional-dependencies]
 redis = ["redis>=6.4,<7.0"]
-dev = ["black>=25.1", "isort>=6.0", "pytest>=8.4"]
+dev = [
+    "black>=25.1",
+    "isort>=6.0",
+    "httpx>=0.28",
+    "pytest>=8.4",
+    "pytest-asyncio>=1.0",
+]
 
 [project.urls]
-Homepage = "https://github.com/amk9978/match-engine"
-Repository = "https://github.com/amk9978/match-engine"
+Homepage = "https://github.com/amk9978/Match-Engine"
+Repository = "https://github.com/amk9978/Match-Engine"
 
 [project.scripts]
 match-engine = "match_engine.cli:main"

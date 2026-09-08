@@ -1,6 +1,6 @@
 # Match Engine
 
-[![CI](https://github.com/amk9978/match-engine/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/amk9978/match-engine/actions/workflows/ci-cd.yml)
+[![CI](https://github.com/amk9978/Match-Engine/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/amk9978/Match-Engine/actions/workflows/ci-cd.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
 Point it at a roster of people and it returns the group most worth putting in a
@@ -14,7 +14,7 @@ group in that graph is the answer.
 ## Quickstart
 
 ```bash
-pip install git+https://github.com/amk9978/match-engine
+pip install git+https://github.com/amk9978/Match-Engine
 
 match-engine match docs/sample.csv --map presets/vendor_six_column.yaml \
   --prompt "I am hiring engineers for a fintech startup"

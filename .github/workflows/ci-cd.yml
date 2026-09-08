@@ -10,13 +10,14 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.12'
           cache: pip
+          cache-dependency-path: pyproject.toml
 
       - name: Install the package
         run: |
@@ -39,37 +40,43 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - name: Set up SSH key and deploy
+      - name: Check a deploy target is configured
+        id: target
+        env:
+          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+        run: |
+          if [ -z "$DEPLOY_HOST" ]; then
+            echo "No DEPLOY_HOST variable set, skipping deploy"
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Deploy over SSH
+        if: steps.target.outputs.configured == 'true'
         shell: bash
         env:
           SSH_PRIVATE_KEY: ${{ secrets.DOCKER_SSH_PRIVATE_KEY }}
-          SSH_PUBLIC_KEY: ${{ secrets.DOCKER_SSH_PUBLIC_KEY }}
+          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ vars.DEPLOY_USER }}
         run: |
           install -m 600 -D /dev/null ~/.ssh/id_rsa
-          install -m 644 -D /dev/null ~/.ssh/id_rsa.pub
           echo "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_rsa
-          echo "$SSH_PUBLIC_KEY" | tr -d '\r' > ~/.ssh/id_rsa.pub
-          chmod 600 ~/.ssh/id_rsa ~/.ssh/id_rsa.pub
-          eval $(ssh-agent -s)
-          ssh-add ~/.ssh/id_rsa
-          
-          # Copy project files to server
+          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+
           rsync -avz --delete \
-            -e "ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no" \
-            ./ ubuntu@54.242.164.134:~/match_engine/
-          
-          # SSH into server and deploy
-          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ubuntu@54.242.164.134 << 'EOF'
+            --exclude '.git' --exclude '.venv' --exclude 'specs' \
+            -e "ssh -i ~/.ssh/id_rsa" \
+            ./ "$DEPLOY_USER@$DEPLOY_HOST:~/match_engine/"
+
+          ssh -i ~/.ssh/id_rsa "$DEPLOY_USER@$DEPLOY_HOST" <<'REMOTE'
             cd ~/match_engine
             cp ~/envs/.env .
-            docker build -t match_engine:latest .
-            docker-compose down || true
-            docker-compose build || true
-            docker-compose up -d
-          EOF
-          
-          rm -f ~/.ssh/id_rsa ~/.ssh/id_rsa.pub
+            docker compose down || true
+            docker compose up -d --build
+          REMOTE
+
+          rm -f ~/.ssh/id_rsa
