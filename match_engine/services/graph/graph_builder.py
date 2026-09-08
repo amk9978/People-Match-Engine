@@ -392,6 +392,13 @@ class GraphBuilder:
             f"density {largest_density:.4f}"
         )
 
+        if len(largest_subgraph) == self.graph.number_of_nodes():
+            logger.warning(
+                f"Every person cleared min_density {self.min_density}, so the "
+                f"whole roster came back. Its density is {largest_density:.3f}, "
+                f"and a threshold above that is what selects a group."
+            )
+
         return largest_subgraph, largest_density
 
     async def run_complete_analysis(self, job_id: str, user_prompt: str = None) -> Dict:

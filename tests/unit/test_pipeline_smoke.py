@@ -203,3 +203,29 @@ class TestForeignSchema:
         assert set(foreign_builder.tuned_w_s) == set(foreign_builder.feature_set.names)
         assert sum(foreign_builder.tuned_w_s.values()) == pytest.approx(1.0)
         assert sum(foreign_builder.tuned_w_c.values()) == pytest.approx(1.0)
+
+
+class TestDensityThreshold:
+    async def test_a_threshold_below_the_graph_density_returns_everyone(
+        self, foreign_builder, caplog
+    ):
+        foreign_builder.load_data()
+        embeddings = await foreign_builder.embed_features()
+        await foreign_builder.create_graph_optimized(embeddings)
+        foreign_builder.min_density = 0.0
+
+        nodes, _ = foreign_builder.find_largest_dense_subgraph()
+
+        assert len(nodes) == foreign_builder.graph.number_of_nodes()
+        assert "whole roster came back" in caplog.text
+
+    async def test_an_unreachable_threshold_returns_nobody(self, foreign_builder):
+        foreign_builder.load_data()
+        embeddings = await foreign_builder.embed_features()
+        await foreign_builder.create_graph_optimized(embeddings)
+        foreign_builder.min_density = 2.0
+
+        nodes, density = foreign_builder.find_largest_dense_subgraph()
+
+        assert nodes == set()
+        assert density == 0.0
