@@ -178,3 +178,34 @@ class TestServeCommand:
         assert result.exit_code == 0
         assert called["target"] == "match_engine.presentation.api_controller:app"
         assert called["port"] == 9001
+
+
+class TestExplicitWeightsFlag:
+    def test_weights_reach_the_request(self, roster, stub_run, tmp_path):
+        path = tmp_path / "w.json"
+        path.write_text('{"similarity": {"role": 3}, "complementarity": {"role": 1}}')
+
+        runner.invoke(app, ["match", str(roster), "--weights", str(path)])
+
+        assert stub_run["request"].weights.similarity == {"role": 3.0}
+
+    def test_malformed_weights_exit_non_zero(self, roster, stub_run, tmp_path):
+        path = tmp_path / "w.json"
+        path.write_text("not json")
+
+        result = runner.invoke(app, ["match", str(roster), "--weights", str(path)])
+
+        assert result.exit_code != 0
+
+    def test_a_negative_weight_is_rejected(self, roster, stub_run, tmp_path):
+        path = tmp_path / "w.json"
+        path.write_text('{"similarity": {"role": -1}, "complementarity": {"role": 1}}')
+
+        result = runner.invoke(app, ["match", str(roster), "--weights", str(path)])
+
+        assert result.exit_code != 0
+
+    def test_a_missing_weights_file_exits_non_zero(self, roster, stub_run):
+        result = runner.invoke(app, ["match", str(roster), "--weights", "nope.json"])
+
+        assert result.exit_code != 0

@@ -1,3 +1,4 @@
+import json
 from dataclasses import dataclass
 from typing import Dict, Optional
 
@@ -7,12 +8,43 @@ from match_engine.services.scoring.intent import Intent
 from match_engine.services.scoring.weight_resolver import normalize_weights
 
 
+class WeightsError(ValueError):
+    """The supplied weights cannot be read as a pair of per-feature vectors."""
+
+
 @dataclass(frozen=True)
 class ExplicitWeights:
     """Per-feature weights a caller chose instead of having them measured."""
 
     similarity: Dict[str, float]
     complementarity: Dict[str, float]
+
+    @classmethod
+    def parse(cls, document: str) -> "ExplicitWeights":
+        """Read weights from a JSON object with a similarity and a
+        complementarity map, each keyed by feature name."""
+        try:
+            payload = json.loads(document)
+        except json.JSONDecodeError as broken:
+            raise WeightsError(f"weights must be JSON: {broken}") from broken
+
+        if not isinstance(payload, dict):
+            raise WeightsError("weights must be a JSON object")
+
+        vectors = {}
+        for key in ("similarity", "complementarity"):
+            vector = payload.get(key)
+            if not isinstance(vector, dict) or not vector:
+                raise WeightsError(f"weights need a non-empty {key} object")
+            for name, value in vector.items():
+                if not isinstance(value, (int, float)) or value < 0:
+                    raise WeightsError(f"{key}.{name} must be zero or more")
+            vectors[key] = {name: float(value) for name, value in vector.items()}
+
+        return cls(
+            similarity=vectors["similarity"],
+            complementarity=vectors["complementarity"],
+        )
 
 
 class ExplicitWeightResolver:

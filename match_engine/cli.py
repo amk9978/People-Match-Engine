@@ -13,7 +13,8 @@ from match_engine.services.graph.recommendations import (
     recommender_for,
 )
 from match_engine.services.match_run import MatchRequest, MatchResult, MatchRun
-from match_engine.services.scoring.scorer_factory import AUTO, CHOICES
+from match_engine.services.scoring.scorer_factory import CHOICES
+from match_engine.services.scoring.weights import ExplicitWeights, WeightsError
 
 app = typer.Typer(
     add_completion=False,
@@ -43,7 +44,9 @@ def _configure_logging(verbose: bool) -> None:
     )
 
 
-def _request(roster: Path, prompt, mapping, min_density, scorer) -> MatchRequest:
+def _request(
+    roster: Path, prompt, mapping, min_density, scorer, weights=None
+) -> MatchRequest:
     if not roster.is_file():
         raise typer.BadParameter(f"no such file: {roster}")
     return MatchRequest(
@@ -52,7 +55,20 @@ def _request(roster: Path, prompt, mapping, min_density, scorer) -> MatchRequest
         min_density=min_density,
         mapping_path=str(mapping) if mapping else None,
         scorer_choice=scorer.value,
+        weights=_weights(weights),
     )
+
+
+def _weights(path: Optional[Path]) -> Optional[ExplicitWeights]:
+    """Read weights the caller decided, in place of the measured ones."""
+    if path is None:
+        return None
+    if not path.is_file():
+        raise typer.BadParameter(f"no such file: {path}")
+    try:
+        return ExplicitWeights.parse(path.read_text())
+    except WeightsError as invalid:
+        raise typer.BadParameter(str(invalid))
 
 
 @app.command()
@@ -68,12 +84,15 @@ def match(
         None, "--min-density", "-d", help="How tight the returned group must be."
     ),
     scorer: Scorer = typer.Option(Scorer.auto, "--scorer", "-s", help=str(CHOICES)),
+    weights: Optional[Path] = typer.Option(
+        None, "--weights", "-w", help="JSON weights, replacing the measured ones."
+    ),
     as_json: bool = typer.Option(False, "--json", help="Print the result document."),
     verbose: bool = typer.Option(False, "--verbose", "-v"),
 ):
     """Return the densest group in the roster."""
     _configure_logging(verbose)
-    request = _request(roster, prompt, mapping, min_density, scorer)
+    request = _request(roster, prompt, mapping, min_density, scorer, weights)
     result = asyncio.run(MatchRun(request, progress=Progress()).execute())
 
     if as_json:
@@ -90,12 +109,13 @@ def recommend(
     prompt: Optional[str] = typer.Option(None, "--prompt", "-p"),
     mapping: Optional[Path] = typer.Option(None, "--map", "-m"),
     scorer: Scorer = typer.Option(Scorer.auto, "--scorer", "-s"),
+    weights: Optional[Path] = typer.Option(None, "--weights", "-w"),
     as_json: bool = typer.Option(False, "--json"),
     verbose: bool = typer.Option(False, "--verbose", "-v"),
 ):
     """Rank one person's best matches in the roster."""
     _configure_logging(verbose)
-    request = _request(roster, prompt, mapping, None, scorer)
+    request = _request(roster, prompt, mapping, None, scorer, weights)
     run = MatchRun(request, progress=Progress())
     asyncio.run(run.execute())
 

@@ -330,6 +330,7 @@ class AnalysisService:
         filename: str,
         min_density: Optional[float] = None,
         prompt: Optional[str] = None,
+        weights: Optional[ExplicitWeights] = None,
         job_service=None,
         user_service=None,
         notification_service=None,
@@ -341,7 +342,7 @@ class AnalysisService:
             job_service.update_job_status(job_id, JobStatusEnum.RUNNING)
 
             await self.run_analysis(
-                job_id, temp_path, notification_service, min_density, prompt
+                job_id, temp_path, notification_service, min_density, prompt, weights
             )
 
             user_service.increment_user_analyses(user_id)

@@ -28,6 +28,7 @@ from match_engine.services.cache.factory import get_cache_backend
 from match_engine.services.file_service import FileService
 from match_engine.services.job_service import JobService
 from match_engine.services.notification_service import NotificationService
+from match_engine.services.scoring.weights import ExplicitWeights, WeightsError
 from match_engine.services.user_service import UserService
 from match_engine.shared.util import serialize_numpy
 
@@ -167,6 +168,7 @@ async def analyze_csv(
     min_density: Optional[float] = Form(None),
     prompt: Optional[str] = Form(None),
     job_id: Optional[str] = Form(None),
+    weights: Optional[str] = Form(None),
     user_id: str = Header(..., alias="X-User-ID"),
 ):
     """Upload CSV file and start graph analysis with optional hyperparameter tuning
@@ -176,6 +178,8 @@ async def analyze_csv(
     - prompt: Optional user intent to tune hyperparameters (e.g., "I want to hire for my startup", "I need peer
         networking", "I want business partnerships")
     - job_id: Optional job identifier to reuse existing job (for reruns)
+    - weights: Optional JSON object with a similarity and a complementarity map,
+        each keyed by feature name, replacing the measured weights
     - file_id: Optional file identifier for cache isolation (auto-generated if not provided)
     - X-User-ID: User identifier in header
     """
@@ -184,6 +188,13 @@ async def analyze_csv(
 
     if not file_service.validate_csv_file(file.filename):
         raise HTTPException(status_code=400, detail="File must be a CSV")
+
+    chosen_weights = None
+    if weights:
+        try:
+            chosen_weights = ExplicitWeights.parse(weights)
+        except WeightsError as invalid:
+            raise HTTPException(status_code=400, detail=str(invalid))
 
     try:
         analysis_result = await analysis_service.process_file_upload_and_analysis(
@@ -206,6 +217,7 @@ async def analyze_csv(
             filename=analysis_result["filename"],
             min_density=min_density,
             prompt=prompt,
+            weights=chosen_weights,
             job_service=job_service,
             user_service=user_service,
             notification_service=notification_service,
