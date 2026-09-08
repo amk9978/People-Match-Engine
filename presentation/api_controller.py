@@ -22,10 +22,11 @@ from fastapi.responses import FileResponse
 import settings  # noqa: F401, F403
 from presentation.models import AnalysisResponse, JobStatus
 from services.analysis_service import AnalysisService
+from services.cache.cache import Cache
+from services.cache.factory import get_cache_backend
 from services.file_service import FileService
 from services.job_service import JobService
 from services.notification_service import NotificationService
-from services.redis.redis_cache import RedisCache, RedisEmbeddingCache
 from services.user_service import UserService
 
 load_dotenv()
@@ -35,14 +36,15 @@ logger = logging.getLogger(__name__)
 def create_services():
     """Create all services with proper dependency injection"""
 
-    redis_cache = RedisCache()
-    results_cache = RedisEmbeddingCache(key_prefix="job_results")
-    matrix_cache = RedisEmbeddingCache()
-    graph_cache = RedisEmbeddingCache(key_prefix="graph_cache")
+    backend = get_cache_backend()
+    shared_cache = Cache(backend)
+    results_cache = Cache(backend, "job_results")
+    matrix_cache = Cache(backend, "embeddings")
+    graph_cache = Cache(backend, "graph_cache")
 
-    job_service = JobService(cache=redis_cache)
-    file_service = FileService(cache=redis_cache)
-    user_service = UserService(cache=redis_cache)
+    job_service = JobService(cache=shared_cache)
+    file_service = FileService(cache=shared_cache)
+    user_service = UserService(cache=shared_cache)
 
     analysis_service = AnalysisService(
         job_service=job_service,

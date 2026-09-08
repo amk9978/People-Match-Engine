@@ -8,7 +8,7 @@ import pandas as pd
 from services.analysis.business_analyzer import BusinessAnalyzer
 from services.analysis.dataset_insights import DatasetInsightsAnalyzer
 from services.preprocessing.tag_extractor import tag_extractor
-from services.redis.app_cache_service import app_cache_service
+from services.cache.app_cache_service import app_cache_service
 from shared.shared import (
     BUSINESS_FEATURES,
     FEATURE_COLUMN_MAPPING,

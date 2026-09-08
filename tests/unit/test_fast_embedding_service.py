@@ -20,7 +20,7 @@ class TestFastEmbeddingService:
     @pytest.fixture
     def fast_embedding_service(self, mock_cache, mock_text_embedding_model):
         with patch(
-            "services.preprocessing.fast_embedding_service.RedisEmbeddingCache",
+            "services.preprocessing.fast_embedding_service.EmbeddingCache",
             return_value=mock_cache,
         ), patch(
             "services.preprocessing.fast_embedding_service.TextEmbedding",
@@ -198,7 +198,7 @@ class TestFastEmbeddingService:
 
     def test_service_initialization(self, mock_cache, mock_text_embedding_model):
         with patch(
-            "services.preprocessing.fast_embedding_service.RedisEmbeddingCache",
+            "services.preprocessing.fast_embedding_service.EmbeddingCache",
             return_value=mock_cache,
         ), patch(
             "services.preprocessing.fast_embedding_service.TextEmbedding",

@@ -13,6 +13,7 @@ from services.graph.scoring.generalized_mean import tune_parameters
 from shared.shared import FEATURE_COLUMN_MAPPING, FEATURES
 
 
+@pytest.mark.integration
 class TestTuneParametersIntegration:
     """
     Integration tests for tune_parameters function using real OpenAI API calls.

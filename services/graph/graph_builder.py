@@ -18,7 +18,8 @@ from services.graph.scoring.generalized_mean import combine_edge_weight, tune_pa
 from services.graph.scoring.similarity_calculator import SimilarityCalculator
 from services.preprocessing.csv_loader import CSVLoader
 from services.preprocessing.embedding_builder import EmbeddingBuilder
-from services.redis.redis_cache import RedisEmbeddingCache
+from services.cache.cache import Cache
+from services.cache.factory import get_cache_backend
 from shared.shared import DEFAULT_FEATURE_WEIGHTS, OPTIMIZED_FEATURE_WEIGHTS
 
 logger = logging.getLogger(__name__)
@@ -36,7 +37,7 @@ class GraphBuilder:
         similarity_calc: SimilarityCalculator = None,
         matrix_builder: MatrixBuilder = None,
         subgraph_analyzer: SubgraphAnalyzer = None,
-        cache: RedisEmbeddingCache = None,
+        cache: Cache = None,
         insight_analyzer: DatasetInsightsAnalyzer = None,
     ):
         self.csv_path = csv_path
@@ -51,7 +52,7 @@ class GraphBuilder:
         self.similarity_calc = similarity_calc or SimilarityCalculator()
         self.matrix_builder = matrix_builder or MatrixBuilder()
         self.subgraph_analyzer = subgraph_analyzer or SubgraphAnalyzer()
-        self.cache = cache or RedisEmbeddingCache(key_prefix="graph_cache")
+        self.cache = cache or Cache(get_cache_backend(), "graph_cache")
         self.insights_analyzer = insight_analyzer or DatasetInsightsAnalyzer()
 
         self.GRAPH_PREFIX = "networkx_graph"

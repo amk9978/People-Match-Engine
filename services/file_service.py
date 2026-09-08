@@ -10,7 +10,8 @@ import pandas as pd
 
 import settings
 from models.file import DatasetDiff, File, FileStats, FileVersion
-from services.redis.redis_cache import RedisCache
+from services.cache.cache import Cache
+from services.cache.factory import get_cache_backend
 
 logger = logging.getLogger(__name__)
 
@@ -18,8 +19,8 @@ logger = logging.getLogger(__name__)
 class FileService:
     """File service with versioning and Redis operations"""
 
-    def __init__(self, cache: RedisCache = None):
-        self.cache = cache or RedisCache()
+    def __init__(self, cache: Cache = None):
+        self.cache = cache or Cache(get_cache_backend())
         self.file_prefix = "file:"
         self.file_version_prefix = "file_version:"
         self.user_files_prefix = "user_files:"

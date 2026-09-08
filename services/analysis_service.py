@@ -11,7 +11,8 @@ from models.job import JobConfiguration, JobResult, JobStatus, JobType
 from services.file_service import FileService
 from services.graph.graph_builder import GraphBuilder
 from services.job_service import JobService
-from services.redis.redis_cache import RedisEmbeddingCache
+from services.cache.cache import Cache
+from services.cache.factory import get_cache_backend
 from shared.shared import BUSINESS_FEATURES, FEATURE_COLUMN_MAPPING, FEATURES
 from shared.util import sanitize_metrics, serialize_numpy
 
@@ -25,17 +26,16 @@ class AnalysisService:
         self,
         job_service: JobService = None,
         file_service: FileService = None,
-        results_cache: RedisEmbeddingCache = None,
-        matrix_cache: RedisEmbeddingCache = None,
-        graph_cache: RedisEmbeddingCache = None,
+        results_cache: Cache = None,
+        matrix_cache: Cache = None,
+        graph_cache: Cache = None,
     ):
         self.job_service = job_service or JobService()
         self.file_service = file_service or FileService()
-        self.results_cache = results_cache or RedisEmbeddingCache(
-            key_prefix="job_results"
-        )
-        self.matrix_cache = matrix_cache or RedisEmbeddingCache()
-        self.graph_cache = graph_cache or RedisEmbeddingCache(key_prefix="graph_cache")
+        backend = get_cache_backend()
+        self.results_cache = results_cache or Cache(backend, "job_results")
+        self.matrix_cache = matrix_cache or Cache(backend, "embeddings")
+        self.graph_cache = graph_cache or Cache(backend, "graph_cache")
 
     def get_filename_by_file_id(self, file_id: str) -> Optional[str]:
         """Get filename by file_id - now uses FileService"""

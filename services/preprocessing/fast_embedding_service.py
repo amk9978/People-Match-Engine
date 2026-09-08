@@ -8,7 +8,8 @@ from fastembed import TextEmbedding
 
 import settings
 from services.preprocessing.embedding_interface import EmbeddingServiceProtocol
-from services.redis.redis_cache import RedisEmbeddingCache
+from services.cache.cache import EmbeddingCache
+from services.cache.factory import get_cache_backend
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +19,7 @@ class FastEmbeddingService(EmbeddingServiceProtocol):
 
     def __init__(self, model_name: str = "BAAI/bge-small-en-v1.5"):
         self.model = TextEmbedding(model_name=model_name)
-        self.cache = RedisEmbeddingCache()
+        self.cache = EmbeddingCache(get_cache_backend())
         self.batch_delay = settings.EMBEDDING_BATCH_DELAY
         self.embedding_dim = 384
 

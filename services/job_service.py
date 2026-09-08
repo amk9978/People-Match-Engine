@@ -5,7 +5,8 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
 from models.job import Job, JobConfiguration, JobResult, JobStats, JobStatus, JobType
-from services.redis.redis_cache import RedisCache
+from services.cache.cache import Cache
+from services.cache.factory import get_cache_backend
 
 logger = logging.getLogger(__name__)
 
@@ -13,8 +14,8 @@ logger = logging.getLogger(__name__)
 class JobService:
     """Job service with Redis operations"""
 
-    def __init__(self, cache: RedisCache = None):
-        self.cache = cache or RedisCache()
+    def __init__(self, cache: Cache = None):
+        self.cache = cache or Cache(get_cache_backend())
         self.job_prefix = "job:"
         self.job_result_prefix = "job_result:"
         self.user_jobs_prefix = "user_jobs:"

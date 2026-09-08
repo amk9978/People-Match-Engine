@@ -10,7 +10,7 @@ import pandas as pd
 from services.preprocessing.embedding_interface import EmbeddingServiceProtocol
 from services.preprocessing.fast_embedding_service import FastEmbeddingService
 from services.preprocessing.tag_extractor import tag_extractor
-from services.redis.app_cache_service import app_cache_service
+from services.cache.app_cache_service import app_cache_service
 
 logging.basicConfig(
     level=logging.INFO,

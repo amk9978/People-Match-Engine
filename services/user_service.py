@@ -3,14 +3,15 @@ from datetime import datetime
 from typing import Dict, List, Optional
 
 from models.user import User, UserStats
-from services.redis.redis_cache import RedisCache
+from services.cache.cache import Cache
+from services.cache.factory import get_cache_backend
 
 
 class UserService:
     """Clean user service with proper separation of concerns"""
 
-    def __init__(self, cache: RedisCache = None):
-        self.cache = cache or RedisCache()
+    def __init__(self, cache: Cache = None):
+        self.cache = cache or Cache(get_cache_backend())
         self.user_stats_prefix = "user_stats:"
         self.user_files_prefix = "user_files:"
         self.user_jobs_prefix = "user_jobs:"

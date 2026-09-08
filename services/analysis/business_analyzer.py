@@ -9,7 +9,7 @@ from typing import Dict, List, Union, overload
 from openai import AsyncOpenAI
 
 import settings
-from services.redis.app_cache_service import app_cache_service
+from services.cache.app_cache_service import app_cache_service
 
 logging.basicConfig(
     level=logging.INFO,
