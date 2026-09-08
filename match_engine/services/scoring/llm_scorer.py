@@ -24,6 +24,10 @@ class MalformedScores(ValueError):
     """The model's reply did not carry one score per comparison for every target."""
 
 
+class ComparisonsExceedBudget(ValueError):
+    """One feature holds more distinct profiles than a single completion can score."""
+
+
 @dataclass(frozen=True)
 class ComplementarityScores:
     scores: Dict[str, Dict[str, float]]
@@ -52,6 +56,15 @@ class LLMComplementarityScorer:
     ) -> ComplementarityScores:
         """Score every target against every comparison, asking the model only for
         the pairs the cache does not already hold."""
+        ceiling = self.max_comparisons()
+        if len(comparison_profiles) > ceiling:
+            raise ComparisonsExceedBudget(
+                f"feature {category} holds {len(comparison_profiles)} distinct "
+                f"profiles and one completion can score {ceiling}. Raise "
+                f"COMPLEMENTARITY_MAX_COMPLETION_TOKENS, or score this feature "
+                f"with the embedding scorer, which has no such cap."
+            )
+
         status = self.cache.get_complementarity_cache_status(
             target_profiles, comparison_profiles, category
         )
@@ -88,6 +101,15 @@ class LLMComplementarityScorer:
         for target, comparisons in missing.items():
             groups.setdefault(tuple(comparisons), []).append(target)
         return groups
+
+    def max_comparisons(self) -> int:
+        """How many distinct profiles one completion can score in a single row.
+
+        Below this the batch holds one or more targets. Above it the model is
+        asked for more numbers than the cap can return, so the reply truncates
+        and every pair in the batch falls back to the neutral value."""
+        budget = settings.COMPLEMENTARITY_MAX_COMPLETION_TOKENS
+        return (budget - ROW_OVERHEAD_TOKENS) // TOKENS_PER_SCORE
 
     def max_targets_per_batch(self, comparison_count: int) -> int:
         """How many targets fit in one completion, given the comparison count.

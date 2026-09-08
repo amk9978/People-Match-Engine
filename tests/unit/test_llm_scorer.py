@@ -3,9 +3,13 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from match_engine import settings
 from match_engine.services.cache.app_cache_service import AppCacheService
 from match_engine.services.cache.memory import InMemoryBackend
 from match_engine.services.scoring.llm_scorer import (
+    ROW_OVERHEAD_TOKENS,
+    TOKENS_PER_SCORE,
+    ComparisonsExceedBudget,
     LLMComplementarityScorer,
     MalformedScores,
 )
@@ -295,3 +299,44 @@ class TestResponseParsing:
         await analyzer._score_batch([ADA], [GRACE, KATHERINE], ROLE)
 
         assert client.chat.completions.requests[0]["max_tokens"] >= 2 * 5
+
+
+class TestComparisonCeiling:
+    """A roster whose distinct profiles cannot fit one row inside the cap.
+
+    A real LinkedIn export of 1,413 people carries 826 distinct job titles, which
+    already forces one target per call. Past the ceiling the model is asked for
+    more numbers than the cap can return, and every pair would come back as the
+    neutral fallback."""
+
+    def test_the_ceiling_follows_the_completion_budget(self, analyzer):
+        assert (
+            analyzer.max_comparisons()
+            == (settings.COMPLEMENTARITY_MAX_COMPLETION_TOKENS - ROW_OVERHEAD_TOKENS)
+            // TOKENS_PER_SCORE
+        )
+
+    def test_a_feature_at_the_ceiling_still_batches_one_row(self, analyzer):
+        assert analyzer.max_targets_per_batch(analyzer.max_comparisons()) == 1
+
+    def test_one_profile_past_the_ceiling_fits_nothing(self, analyzer):
+        beyond = analyzer.max_comparisons() + 1
+
+        assert beyond * TOKENS_PER_SCORE + ROW_OVERHEAD_TOKENS > (
+            settings.COMPLEMENTARITY_MAX_COMPLETION_TOKENS
+        )
+
+    async def test_too_many_distinct_profiles_fails_loudly(self, analyzer):
+        profiles = [f"title {index}" for index in range(analyzer.max_comparisons() + 1)]
+
+        with pytest.raises(ComparisonsExceedBudget) as raised:
+            await analyzer.get_profile_complementarity(profiles, profiles, ROLE)
+
+        assert "embedding" in str(raised.value)
+
+    async def test_a_feature_under_the_ceiling_is_scored(self, analyzer):
+        profiles = [ADA, GRACE, KATHERINE]
+
+        result = await analyzer.get_profile_complementarity(profiles, profiles, ROLE)
+
+        assert result.report.fallback_pairs == 0

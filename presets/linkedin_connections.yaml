@@ -4,9 +4,11 @@
 #
 #   match-engine match Connections.csv --map presets/linkedin_connections.yaml
 #
-# Position is free text, so it barely repeats across a roster. Scoring every
-# distinct title through a model is the expensive case, and the embedding
-# scorer takes the same titles in one batch:
+# Position is free text. A real 1,413-connection export carries 826 distinct
+# titles, so the distinct-profile optimization halves the work and no more. At
+# that cardinality one completion holds a single target, which is 826 model
+# calls for one feature, and past 1,598 distinct titles the model path refuses
+# outright. The embedding scorer takes the same titles in one batch:
 #
 #   match-engine match Connections.csv --map presets/linkedin_connections.yaml \
 #     --scorer embedding
