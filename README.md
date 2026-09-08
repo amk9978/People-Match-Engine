@@ -23,9 +23,10 @@ match-engine recommend docs/sample.csv --map presets/vendor_six_column.yaml \
   --person "Sarah Chen" --top 5
 ```
 
-No key, no server, no Redis. Embeddings run locally through `fastembed`, and
-complementarity comes from those same vectors unless `OPENAI_API_KEY` is set,
-which switches on the model that scores it properly. A run names its scorer.
+No key, no server, no Redis. Embeddings run locally through `fastembed`, whose
+130MB model downloads on the first run only. Complementarity comes from those
+same vectors unless `OPENAI_API_KEY` is set, which switches on the model that
+scores it properly. A run names its scorer.
 
 For the HTTP API and the views above, `cp .env.example .env` then
 `docker compose up -d`. `POST /analyze` takes the CSV and returns a job id, and
@@ -35,9 +36,8 @@ lives at `/jobs/{job_id}/people/{position}/matches`. Full API at `/docs`.
 ## Your data, your weighting
 
 Any CSV works. It needs a column naming each person and one column of text worth
-comparing. The engine reads the columns off the file, ranks them by
-distinct-value count, and infers each one's tag separator. To name them yourself,
-pass a mapping with `--map`.
+comparing. The engine reads the columns off the file, ranks them by distinct-value
+count, and infers each one's tag separator. To name them yourself, pass `--map`.
 
 ```yaml
 name_column: Attendee
