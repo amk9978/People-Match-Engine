@@ -7,12 +7,13 @@ wheels/
 *.egg-info
 .idea/
 # Virtual environments
-.venv
-samples/
-samples2/
+/.venv/
+/samples/
+/samples2/
 .env
-cache/
-data/
-specs/
+/cache/
+/data/
+tests/integration/data/
+/specs/
 TODO
 CLAUDE.md
