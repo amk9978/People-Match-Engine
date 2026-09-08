@@ -1,0 +1,20 @@
+# The LinkedIn connections export, from Settings, Data privacy, Get a copy of
+# your data. Verified against a real Connections.csv: three lines of notes sit
+# above the header, and a person's name arrives split across two columns.
+#
+#   match-engine match Connections.csv --map presets/linkedin_connections.yaml
+#
+# Position is free text, so it barely repeats across a roster. Scoring every
+# distinct title through a model is the expensive case, and the embedding
+# scorer takes the same titles in one batch:
+#
+#   match-engine match Connections.csv --map presets/linkedin_connections.yaml \
+#     --scorer embedding
+skip_rows: 3
+name_columns: [First Name, Last Name]
+name_column: Person
+company_column: Company
+features:
+  - name: position
+    column: Position
+    separator: ""

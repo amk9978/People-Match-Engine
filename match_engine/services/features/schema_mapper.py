@@ -1,4 +1,5 @@
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
@@ -21,6 +22,19 @@ class SchemaError(ValueError):
     """The dataset and the requested mapping cannot produce a usable feature set."""
 
 
+@dataclass(frozen=True)
+class LoadPlan:
+    """What a mapping needs done to the file before its columns can be read.
+
+    A vendor export is not always a bare table. LinkedIn writes three lines of
+    notes above its header, and it splits a person's name across two columns
+    where the engine wants one."""
+
+    skip_rows: int = 0
+    name_columns: Tuple[str, ...] = ()
+    name_column: str = ""
+
+
 class SchemaMapper:
     """Turns a CSV into a FeatureSet, from an explicit mapping or by inspection.
 
@@ -33,10 +47,32 @@ class SchemaMapper:
         assert self.max_features > 0, "max_features must be positive"
 
     def from_file(self, mapping_path: str, df: pd.DataFrame) -> FeatureSet:
+        return self.from_mapping(self.read_mapping(mapping_path), df)
+
+    def read_mapping(self, mapping_path: str) -> Dict[str, Any]:
         mapping = yaml.safe_load(Path(mapping_path).read_text())
         if not isinstance(mapping, dict):
             raise SchemaError(f"{mapping_path} does not contain a mapping")
-        return self.from_mapping(mapping, df)
+        return mapping
+
+    def load_plan(self, mapping: Dict[str, Any]) -> LoadPlan:
+        """Read the file-shaping options a mapping declares, before any read."""
+        skip_rows = mapping.get("skip_rows", 0)
+        if not isinstance(skip_rows, int) or skip_rows < 0:
+            raise SchemaError(f"skip_rows must be zero or more, got {skip_rows!r}")
+
+        name_columns = tuple(mapping.get("name_columns", ()))
+        name_column = mapping.get("name_column", "")
+        if name_columns and not name_column:
+            raise SchemaError(
+                "name_columns needs name_column, which names the joined column"
+            )
+
+        return LoadPlan(
+            skip_rows=skip_rows,
+            name_columns=name_columns,
+            name_column=name_column,
+        )
 
     def from_mapping(self, mapping: Dict[str, Any], df: pd.DataFrame) -> FeatureSet:
         """Build a feature set from an explicit mapping, filling in any separator
