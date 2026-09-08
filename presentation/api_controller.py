@@ -39,7 +39,6 @@ def create_services():
     backend = get_cache_backend()
     shared_cache = Cache(backend)
     results_cache = Cache(backend, "job_results")
-    matrix_cache = Cache(backend, "embeddings")
     graph_cache = Cache(backend, "graph_cache")
 
     job_service = JobService(cache=shared_cache)
@@ -50,7 +49,6 @@ def create_services():
         job_service=job_service,
         file_service=file_service,
         results_cache=results_cache,
-        matrix_cache=matrix_cache,
         graph_cache=graph_cache,
     )
 

@@ -13,7 +13,6 @@ from services.graph.graph_builder import GraphBuilder
 from services.job_service import JobService
 from services.cache.cache import Cache
 from services.cache.factory import get_cache_backend
-from shared.shared import BUSINESS_FEATURES, FEATURE_COLUMN_MAPPING, FEATURES
 from shared.util import sanitize_metrics, serialize_numpy
 
 logger = logging.getLogger(__name__)
@@ -27,14 +26,12 @@ class AnalysisService:
         job_service: JobService = None,
         file_service: FileService = None,
         results_cache: Cache = None,
-        matrix_cache: Cache = None,
         graph_cache: Cache = None,
     ):
         self.job_service = job_service or JobService()
         self.file_service = file_service or FileService()
         backend = get_cache_backend()
         self.results_cache = results_cache or Cache(backend, "job_results")
-        self.matrix_cache = matrix_cache or Cache(backend, "embeddings")
         self.graph_cache = graph_cache or Cache(backend, "graph_cache")
 
     def get_filename_by_file_id(self, file_id: str) -> Optional[str]:
@@ -142,181 +139,26 @@ class AnalysisService:
         )
         self.job_service.set_job_result(job_id, job_result)
 
-    def _smart_cache_invalidation(self, job_id: str, new_csv_path: str):
-        """Smart cache invalidation: preserve reusable data, clear only what's invalid"""
-        try:
-            # CRITICAL: Clear job result cache first - prevents stale results
-            self._clear_job_result_caches(job_id)
+    def _invalidate_job_caches(self, job_id: str) -> None:
+        """Drop everything a rerun must recompute, keeping what stays valid.
 
-            self._clear_specific_graph_caches(job_id)
-
-            try:
-                new_df = pd.read_csv(new_csv_path)
-                self._validate_matrix_caches(job_id, new_df)
-            except Exception as e:
-                logger.warning(
-                    f"Could not validate matrix caches, falling back to partial clear: {e}"
-                )
-                self._clear_specific_matrix_caches(job_id)
-
-            logger.info(f"Smart cache invalidation completed", extra={"job_id": job_id})
-
-        except Exception as e:
-            logger.warning(
-                f"Warning: Smart cache invalidation failed for job, using safe fallback",
-                extra={"job_id": job_id, "e": e},
-            )
-            try:
-                self._clear_job_result_caches(job_id)
-                logger.info("✅ Applied safe fallback cache clearing")
-            except Exception as fallback_error:
-                logger.error(f"Even fallback cache clearing failed: {fallback_error}")
+        Complementarity scores are keyed by profile pair, so a changed profile
+        yields a different key and stale rows are never read. Only the artifacts
+        keyed by job need clearing."""
+        self._clear_job_result_caches(job_id)
+        self._clear_specific_graph_caches(job_id)
 
     def _clear_job_result_caches(self, job_id: str):
-        """Clear all job result caches - critical for preventing stale results"""
-        try:
-            results_cache_key = f"result_{job_id}"
-            self.results_cache.delete(results_cache_key)
-            job_result_key = f"job_result:{job_id}"
-            self.job_service.cache.delete(job_result_key)
-
-        except Exception as e:
-            logger.warning(f"Error clearing job result caches: {e}")
+        self.results_cache.delete(f"result_{job_id}")
+        self.job_service.cache.delete(f"job_result:{job_id}")
 
     def _clear_specific_graph_caches(self, job_id: str):
-        """Clear only specific graph-related caches, preserve job metadata"""
-        try:
-
-            # Only clear specific graph cache keys, not all job_id patterns
-            specific_keys = [
-                f"networkx_graph_{job_id}",
-                f"causal_graph_complete_{job_id}",
-                f"feature_embeddings_{job_id}",
-                f"graph_data_{job_id}",
-                f"graph_structure_{job_id}",
-            ]
-
-            cleared_count = 0
-            for key in specific_keys:
-                if self.graph_cache.delete(key) > 0:
-                    cleared_count += 1
-
-            logger.info(f"🗑️ Cleared {cleared_count} specific graph cache entries")
-
-        except Exception as e:
-            logger.warning(f"Error clearing specific graph caches: {e}")
-
-    def _clear_specific_matrix_caches(self, job_id: str):
-        """Clear only matrix caches, preserve everything else"""
-        try:
-            matrix_keys = [
-                f"causal_graph_complete_{job_id}",
-                f"persona_complementarity_matrix_complete_{job_id}",
-                f"experience_complementarity_matrix_complete_{job_id}",
-                f"role_complementarity_matrix_complete_{job_id}",
-            ]
-
-            cleared_count = 0
-            for key in matrix_keys:
-                if self.matrix_cache.delete(key) > 0:
-                    cleared_count += 1
-        except Exception as e:
-            logger.warning(f"Error clearing specific matrix caches: {e}")
-
-    def _validate_matrix_caches(self, job_id: str, new_df: pd.DataFrame):
-        """Validate complementarity matrices - keep valid rows, remove invalid ones"""
-        try:
-            new_profiles = self._extract_current_profiles(new_df)
-            matrix_types = FEATURES
-
-            for matrix_type in matrix_types:
-                self._validate_single_matrix(
-                    job_id, matrix_type, new_profiles.get(matrix_type, set())
-                )
-
-        except Exception as e:
-            logger.warning(f"Matrix validation failed: {e}")
-            raise e
-
-    def _extract_current_profiles(self, df: pd.DataFrame) -> dict:
-        """Extract current profile vectors from the new dataset"""
-        profiles = {feature: set() for feature in FEATURES}
-        column_mapping = FEATURE_COLUMN_MAPPING
-
-        for category, column in column_mapping.items():
-            if column in df.columns:
-                for _, row in df.iterrows():
-                    if pd.notna(row[column]):
-                        profile = str(row[column]).strip()
-                        if profile:
-                            profiles[category].add(profile)
-
-        return profiles
-
-    def _validate_single_matrix(
-        self, job_id: str, matrix_type: str, current_profiles: set
-    ):
-        """Validate a single complementarity matrix, removing invalid rows"""
-        try:
-            if matrix_type in BUSINESS_FEATURES:
-                cache_key = f"causal_graph_complete_{job_id}"
-            else:
-                cache_key = f"{matrix_type}_complementarity_matrix_complete_{job_id}"
-
-            cached_data = self.matrix_cache.get(cache_key)
-            if not cached_data:
-                logger.info(
-                    f"No cached matrix found for {matrix_type}, skipping validation"
-                )
-                return
-
-            matrix_data = json.loads(cached_data)
-
-            if matrix_type in BUSINESS_FEATURES:
-                category_data = matrix_data.get(matrix_type, {})
-                valid_profiles = self._filter_valid_profiles(
-                    category_data, current_profiles
-                )
-                if len(valid_profiles) != len(category_data):
-                    matrix_data[matrix_type] = valid_profiles
-                    self.matrix_cache.set(cache_key, json.dumps(matrix_data))
-                    removed = len(category_data) - len(valid_profiles)
-                    logger.info(
-                        f"🔄 Updated {matrix_type} matrix: removed {removed} invalid profiles"
-                    )
-            else:
-                valid_profiles = self._filter_valid_profiles(
-                    matrix_data, current_profiles
-                )
-                if len(valid_profiles) != len(matrix_data):
-                    self.matrix_cache.set(cache_key, json.dumps(valid_profiles))
-                    removed = len(matrix_data) - len(valid_profiles)
-                    logger.info(
-                        f"🔄 Updated {matrix_type} matrix: removed {removed} invalid profiles"
-                    )
-
-        except Exception as e:
-            logger.warning(f"Failed to validate {matrix_type} matrix: {e}")
-            self.matrix_cache.delete(cache_key)
-            logger.info(
-                f"🗑️ Removed entire {matrix_type} matrix due to validation failure"
-            )
-
-    def _filter_valid_profiles(self, matrix_data: dict, current_profiles: set) -> dict:
-        """Filter matrix data to keep only profiles that still exist in the dataset"""
-        valid_data = {}
-
-        for profile_key, profile_relationships in matrix_data.items():
-            if profile_key in current_profiles:
-                valid_relationships = {
-                    target: score
-                    for target, score in profile_relationships.items()
-                    if target in current_profiles
-                }
-                if valid_relationships:
-                    valid_data[profile_key] = valid_relationships
-
-        return valid_data
+        keys = [
+            f"networkx_graph_{job_id}",
+            f"feature_embeddings_{job_id}",
+        ]
+        cleared = sum(1 for key in keys if self.graph_cache.delete(key) > 0)
+        logger.info(f"Cleared {cleared} graph cache entries for job {job_id}")
 
     async def run_analysis(
         self,
@@ -342,7 +184,7 @@ class AnalysisService:
                 "Validating caches...",
                 notification_service,
             )
-            self._smart_cache_invalidation(job_id, csv_path)
+            self._invalidate_job_caches(job_id)
 
             await self._update_job_and_notify(
                 job_id,

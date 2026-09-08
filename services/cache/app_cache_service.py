@@ -1,6 +1,7 @@
 import hashlib
 import json
 import logging
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
@@ -12,7 +13,29 @@ from services.cache.factory import get_cache_backend
 logger = logging.getLogger(__name__)
 
 PERSON_EMBEDDING_PREFIX = "person_embedding"
-PROFILE_COMPLEMENTARITY_PREFIX = "profile_complementarity"
+PAIR_COMPLEMENTARITY_PREFIX = "complementarity"
+PROFILE_DIGEST_CHARS = 16
+
+
+def _digest(profile: str) -> str:
+    return hashlib.md5(profile.encode("utf-8")).hexdigest()[:PROFILE_DIGEST_CHARS]
+
+
+def _parse_score(raw: str, key: str, store: Cache) -> Optional[float]:
+    try:
+        return float(raw)
+    except ValueError:
+        logger.warning(f"Discarding malformed cached score at {key}")
+        store.delete(key)
+        return None
+
+
+@dataclass(frozen=True)
+class ComplementarityCacheStatus:
+    """Which target-comparison pairs already have a score and which still need one."""
+
+    cached: Dict[str, Dict[str, float]]
+    missing: Dict[str, List[str]]
 
 
 class AppCacheService:
@@ -50,18 +73,6 @@ class AppCacheService:
 
     def _get_person_cache_key(self, row_hash: str, feature_type: str) -> str:
         return f"{PERSON_EMBEDDING_PREFIX}:{feature_type}:{row_hash}"
-
-    def _get_complementarity_cache_key(
-        self, target_profile: str, comparison_profiles: List[str], category: str
-    ) -> str:
-        target_hash = hashlib.md5(target_profile.encode()).hexdigest()[:8]
-        comparison_hash = hashlib.md5(
-            str(sorted(comparison_profiles)).encode()
-        ).hexdigest()[:8]
-        return (
-            f"{PROFILE_COMPLEMENTARITY_PREFIX}:{category}:"
-            f"{target_hash}:vs:{comparison_hash}"
-        )
 
     def get_person_embedding(
         self, row_data: Dict[str, Any], feature_type: str
@@ -158,76 +169,102 @@ class AppCacheService:
         else:
             return {col: str(row.get(col, "")) for col in row.index}
 
-    def get_profile_complementarity(
-        self, target_profile: str, comparison_profiles: List[str], category: str
-    ) -> Optional[Dict[str, float]]:
-        cache_key = self._get_complementarity_cache_key(
-            target_profile, comparison_profiles, category
-        )
-        cached_data = self.store.get(cache_key)
-        if cached_data is None:
-            return None
-        try:
-            return json.loads(cached_data)
-        except json.JSONDecodeError:
-            logger.warning(f"Discarding malformed cached complementarity at {cache_key}")
-            self.store.delete(cache_key)
-            return None
+    def _pair_key(self, category: str, source: str, target: str) -> str:
+        """Key one ordered pair of profiles for one feature.
 
-    def set_profile_complementarity(
-        self,
-        target_profile: str,
-        comparison_profiles: List[str],
-        category: str,
-        scores: Dict[str, float],
+        Pairs are keyed individually so a score survives any change to the rest
+        of the roster. Keying a whole comparison set together meant adding one
+        person invalidated every previously scored row."""
+        return (
+            f"{PAIR_COMPLEMENTARITY_PREFIX}:{category}:"
+            f"{_digest(source)}:{_digest(target)}"
+        )
+
+    def get_pair_score(
+        self, category: str, source: str, target: str
+    ) -> Optional[float]:
+        """Read one pair's score, falling back to the transpose when only it was scored."""
+        for key in (
+            self._pair_key(category, source, target),
+            self._pair_key(category, target, source),
+        ):
+            raw = self.store.get(key)
+            if raw is not None:
+                return _parse_score(raw, key, self.store)
+        return None
+
+    def set_pair_score(
+        self, category: str, source: str, target: str, score: float
     ) -> bool:
-        cache_key = self._get_complementarity_cache_key(
-            target_profile, comparison_profiles, category
-        )
-        return self.store.set(cache_key, json.dumps(scores))
+        return self.store.set(self._pair_key(category, source, target), repr(score))
 
-    def get_dataset_complementarity_cache_status(
+    def get_complementarity_cache_status(
         self, target_profiles: List[str], comparison_profiles: List[str], category: str
-    ) -> Dict[str, Any]:
-        """Split target profiles into those with cached scores and those needing computation."""
-        cached_results = {}
-        uncached_targets = []
+    ) -> ComplementarityCacheStatus:
+        """Split every target-comparison pair into what is cached and what is not.
 
-        for target in target_profiles:
-            cached_scores = self.get_profile_complementarity(
-                target, comparison_profiles, category
-            )
-            if cached_scores:
-                cached_results[target] = cached_scores
+        Self-comparison is never requested. Reads go out in one batch per
+        direction, so the cost is two round trips rather than one per pair."""
+        wanted = [
+            (target, comparison)
+            for target in target_profiles
+            for comparison in comparison_profiles
+            if target != comparison
+        ]
+
+        forward = {
+            pair: self._pair_key(category, pair[0], pair[1]) for pair in wanted
+        }
+        reverse = {
+            pair: self._pair_key(category, pair[1], pair[0]) for pair in wanted
+        }
+        stored = self.store.get_many(list(forward.values()))
+        stored.update(self.store.get_many(list(reverse.values())))
+
+        cached: Dict[str, Dict[str, float]] = {}
+        missing: Dict[str, List[str]] = {}
+
+        for pair in wanted:
+            target, comparison = pair
+            raw = stored.get(forward[pair])
+            if raw is None:
+                raw = stored.get(reverse[pair])
+
+            score = None
+            if raw is not None:
+                score = _parse_score(raw, forward[pair], self.store)
+
+            if score is None:
+                missing.setdefault(target, []).append(comparison)
             else:
-                uncached_targets.append(target)
+                cached.setdefault(target, {})[comparison] = score
 
         logger.info(
-            f"Feature {category}: {len(cached_results)} cached complementarity rows, "
-            f"{len(uncached_targets)} to compute"
+            f"Feature {category}: {sum(len(row) for row in cached.values())} cached pairs, "
+            f"{sum(len(row) for row in missing.values())} to score"
         )
+        return ComplementarityCacheStatus(cached=cached, missing=missing)
 
-        return {
-            "cached_results": cached_results,
-            "uncached_targets": uncached_targets,
-            "comparison_profiles": comparison_profiles,
-        }
+    def cache_complementarity_scores(
+        self, results: Dict[str, Dict[str, float]], category: str
+    ) -> int:
+        stored = 0
+        for source, scores in results.items():
+            for target, score in scores.items():
+                if source == target:
+                    continue
+                if self.set_pair_score(category, source, target, score):
+                    stored += 1
 
-    def cache_dataset_complementarity_results(
-        self,
-        results: Dict[str, Dict[str, float]],
-        comparison_profiles: List[str],
-        category: str,
-    ) -> None:
-        cached_count = 0
+        logger.info(f"Feature {category}: cached {stored} complementarity pairs")
+        return stored
 
-        for target_profile, scores in results.items():
-            if self.set_profile_complementarity(
-                target_profile, comparison_profiles, category, scores
-            ):
-                cached_count += 1
-
-        logger.info(f"Cached {cached_count} new {category} complementarity rows")
+    def clear_complementarity(self, category: str = None) -> int:
+        if category:
+            pattern = f"{PAIR_COMPLEMENTARITY_PREFIX}:{category}:*"
+        else:
+            pattern = f"{PAIR_COMPLEMENTARITY_PREFIX}:*"
+        return self.store.delete_by_pattern(pattern)
 
     def get_text_embedding(self, text: str) -> Optional[List[float]]:
         return self.embeddings.get(text)
@@ -242,13 +279,6 @@ class AppCacheService:
             pattern = f"{PERSON_EMBEDDING_PREFIX}:*"
         return self.store.delete_by_pattern(pattern)
 
-    def clear_profile_complementarity(self, category: str = None) -> int:
-        if category:
-            pattern = f"{PROFILE_COMPLEMENTARITY_PREFIX}:{category}:*"
-        else:
-            pattern = f"{PROFILE_COMPLEMENTARITY_PREFIX}:*"
-        return self.store.delete_by_pattern(pattern)
-
     def get_cache_stats(self) -> Dict[str, Any]:
         stats = self.store.info()
         stats.update(
@@ -256,8 +286,8 @@ class AppCacheService:
                 "person_embedding_keys": self.store.count_by_pattern(
                     f"{PERSON_EMBEDDING_PREFIX}:*"
                 ),
-                "profile_complementarity_keys": self.store.count_by_pattern(
-                    f"{PROFILE_COMPLEMENTARITY_PREFIX}:*"
+                "complementarity_pair_keys": self.store.count_by_pattern(
+                    f"{PAIR_COMPLEMENTARITY_PREFIX}:*"
                 ),
             }
         )

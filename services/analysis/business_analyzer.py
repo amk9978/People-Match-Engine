@@ -4,7 +4,7 @@ import logging
 import re
 import sys
 from textwrap import dedent
-from typing import Dict, List, Union, overload
+from typing import Dict, List, Tuple
 
 from openai import AsyncOpenAI
 
@@ -285,97 +285,87 @@ class BusinessAnalyzer:
 
             return individual_results
 
-    @overload
-    async def get_profile_complementarity(
-        self,
-        target_profiles: str,
-        comparison_profiles: List[str],
-        category: str,
-        batch_size: int = 8,
-    ) -> Dict[str, float]: ...
-
-    @overload
     async def get_profile_complementarity(
         self,
         target_profiles: List[str],
         comparison_profiles: List[str],
         category: str,
         batch_size: int = 8,
-    ) -> Dict[str, Dict[str, float]]: ...
-
-    async def get_profile_complementarity(
-        self,
-        target_profiles: Union[str, List[str]],
-        comparison_profiles: List[str],
-        category: str,
-        batch_size: int = 8,
-    ) -> Union[Dict[str, float], Dict[str, Dict[str, float]]]:
-        """Get complementarity scores for single or multiple target profiles in batched requests"""
-
-        single_profile = isinstance(target_profiles, str)
-        if single_profile:
-            target_profiles = [target_profiles]
-
-        cache_status = self.cache.get_dataset_complementarity_cache_status(
+    ) -> Dict[str, Dict[str, float]]:
+        """Score every target against every comparison, asking the model only for
+        the pairs the cache does not already hold."""
+        status = self.cache.get_complementarity_cache_status(
             target_profiles, comparison_profiles, category
         )
-        results = cache_status["cached_results"]
-        uncached_targets = cache_status["uncached_targets"]
+        results = {target: dict(scores) for target, scores in status.cached.items()}
 
-        if not uncached_targets:
-            if single_profile:
-                return results[list(results.keys())[0]]
+        if not status.missing:
             return results
 
-        logger.info(
-            f"Processing {len(uncached_targets)} uncached {category} profiles in batches of {batch_size}"
-        )
-
-        tasks = []
-        for i in range(0, len(uncached_targets), batch_size):
-            batch_targets = uncached_targets[i : i + batch_size]
-            task = asyncio.create_task(
-                self._process_single_batch(batch_targets, comparison_profiles, category)
+        for comparisons, targets in self._group_by_missing(status.missing).items():
+            scored = await self._score_group(
+                list(targets), list(comparisons), category, batch_size
             )
-            tasks.append((task, batch_targets))
-
-        batch_results_list = await asyncio.gather(
-            *[task for task, _ in tasks], return_exceptions=True
-        )
-
-        for (task, batch_targets), batch_result in zip(tasks, batch_results_list):
-            if isinstance(batch_result, Exception):
-                logger.error(f"  ❌ Batch task failed: {batch_result}")
-                for target in batch_targets:
-                    results[target] = {
-                        profile: FALLBACK_VALUE for profile in comparison_profiles
-                    }
-            else:
-                # Cache individual results and merge
-                batch_cache_results = {}
-                for target in batch_targets:
-                    if isinstance(batch_result, dict) and target in batch_result:
-                        results[target] = batch_result[target]
-                        batch_cache_results[target] = batch_result[target]
-                        logger.info(f"  ✓ Got batch result for {target[:50]}...")
-                    else:
-                        results[target] = {
-                            profile: FALLBACK_VALUE for profile in comparison_profiles
-                        }
-                        logger.info(
-                            f"  ⚠️ No result for {target[:50]}..., using fallback"
-                        )
-
-                if batch_cache_results:
-                    self.cache.cache_dataset_complementarity_results(
-                        batch_cache_results, comparison_profiles, category
-                    )
-
-        logger.info(
-            f"Batch processing complete: {len(results)} {category} profiles processed"
-        )
-
-        if single_profile:
-            return results[list(results.keys())[0]]
+            for target, scores in scored.items():
+                results.setdefault(target, {}).update(scores)
+            self.cache.cache_complementarity_scores(scored, category)
 
         return results
+
+    def _group_by_missing(
+        self, missing: Dict[str, List[str]]
+    ) -> Dict[Tuple[str, ...], List[str]]:
+        """Group targets that need the same comparisons so each batch asks one question.
+
+        Adding one person to a scored roster leaves every existing target missing
+        exactly that person, which collapses into a single group."""
+        groups: Dict[Tuple[str, ...], List[str]] = {}
+        for target, comparisons in missing.items():
+            groups.setdefault(tuple(comparisons), []).append(target)
+        return groups
+
+    async def _score_group(
+        self,
+        targets: List[str],
+        comparisons: List[str],
+        category: str,
+        batch_size: int,
+    ) -> Dict[str, Dict[str, float]]:
+        logger.info(
+            f"Feature {category}: scoring {len(targets)} targets against "
+            f"{len(comparisons)} comparisons in batches of {batch_size}"
+        )
+
+        batches = [
+            targets[start : start + batch_size]
+            for start in range(0, len(targets), batch_size)
+        ]
+        batch_results = await asyncio.gather(
+            *[
+                self._process_single_batch(batch, comparisons, category)
+                for batch in batches
+            ],
+            return_exceptions=True,
+        )
+
+        scored: Dict[str, Dict[str, float]] = {}
+        for batch, batch_result in zip(batches, batch_results):
+            if isinstance(batch_result, Exception):
+                logger.error(f"Feature {category}: batch failed: {batch_result}")
+                for target in batch:
+                    scored[target] = {
+                        comparison: FALLBACK_VALUE for comparison in comparisons
+                    }
+                continue
+
+            for target in batch:
+                row = batch_result.get(target)
+                if row is None:
+                    logger.warning(
+                        f"Feature {category}: no scores returned for a target, "
+                        f"using the fallback value"
+                    )
+                    row = {comparison: FALLBACK_VALUE for comparison in comparisons}
+                scored[target] = row
+
+        return scored
