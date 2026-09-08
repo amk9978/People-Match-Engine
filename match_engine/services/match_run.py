@@ -4,6 +4,7 @@ from typing import Dict, List, Optional, Protocol
 
 from match_engine.services.analysis.matrix_builder import MatrixBuilder
 from match_engine.services.graph.graph_builder import GraphBuilder
+from match_engine.services.graph.recommendations import Match, recommender_for
 from match_engine.services.scoring.complementarity_scorer import ComplementarityScorer
 from match_engine.services.scoring.profile import ScoringProfile
 from match_engine.services.scoring.report import ScoringReport
@@ -20,6 +21,9 @@ EMBEDDING = "Creating feature embeddings"
 SCORING = "Scoring pairs and building the graph"
 PEELING = "Finding the densest subgraph"
 ANALYZING = "Analyzing the group"
+RANKING = "Ranking each person's matches"
+
+DEFAULT_TOP_K = 5
 
 
 @dataclass(frozen=True)
@@ -34,6 +38,7 @@ class MatchRequest:
     weights: Optional[ExplicitWeights] = None
     scorer: Optional[ComplementarityScorer] = None
     scorer_choice: Optional[str] = None
+    top_k: int = DEFAULT_TOP_K
 
 
 @dataclass(frozen=True)
@@ -44,6 +49,7 @@ class MatchResult:
     row_count: int
     report: ScoringReport
     info: Dict = field(default_factory=dict)
+    recommendations: Dict[int, List[Match]] = field(default_factory=dict)
 
 
 class ProgressReporter(Protocol):
@@ -126,6 +132,9 @@ class MatchRun:
         await self.progress.report(ANALYZING)
         info = builder.get_subgraph_info(nodes, embeddings)
 
+        await self.progress.report(RANKING)
+        recommendations = self._rank_everyone(builder)
+
         return MatchResult(
             nodes=sorted(nodes),
             names=self._names(builder),
@@ -133,7 +142,19 @@ class MatchRun:
             row_count=len(builder.df),
             report=builder.matrix_builder.scoring_report,
             info=info,
+            recommendations=recommendations,
         )
+
+    def _rank_everyone(self, builder: GraphBuilder) -> Dict[int, List[Match]]:
+        """Rank every person's neighbours now, since the graph is about to go.
+
+        Rebuilding the calibrated matrices later to answer one person's question
+        would cost a whole run, so the answer is computed while they exist."""
+        recommender = recommender_for(builder)
+        return {
+            position: recommender.top_matches(position, self.request.top_k)
+            for position in builder.graph.nodes
+        }
 
     def _names(self, builder: GraphBuilder) -> List[str]:
         column = builder.feature_set.name_column

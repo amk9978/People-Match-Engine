@@ -82,6 +82,7 @@ class TestMatchRun:
             "Scoring pairs and building the graph",
             "Finding the densest subgraph",
             "Analyzing the group",
+            "Ranking each person's matches",
         ]
 
     async def test_the_scoring_report_travels_with_the_result(self, roster):
@@ -108,6 +109,19 @@ class TestMatchRun:
         await run.execute()
 
         assert builder.scoring_profile.rho == 0.9
+
+    async def test_every_person_gets_a_ranked_list(self, roster):
+        run = MatchRun(
+            MatchRequest(csv_path=roster, mapping_path=MAPPING, top_k=3),
+            graph_builder=_builder(roster),
+        )
+
+        result = await run.execute()
+
+        assert set(result.recommendations) == set(range(8))
+        assert all(len(matches) == 3 for matches in result.recommendations.values())
+        for position, matches in result.recommendations.items():
+            assert all(match.position != position for match in matches)
 
     async def test_the_run_reads_names_from_the_feature_set(self, roster):
         run = MatchRun(

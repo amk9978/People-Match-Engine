@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+from dataclasses import asdict
 from datetime import datetime
 from io import StringIO
 from typing import Dict, Optional
@@ -211,6 +212,11 @@ class AnalysisService:
 
             result = dict(match.info)
             result["expansion_recommendations"] = []
+            result["people"] = match.names
+            result["matches"] = {
+                str(position): [asdict(one) for one in matches]
+                for position, matches in match.recommendations.items()
+            }
             result["debug_info"] = {
                 "csv_path": csv_path,
                 "dataset_rows": match.row_count,

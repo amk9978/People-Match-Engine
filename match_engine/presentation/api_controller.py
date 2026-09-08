@@ -275,6 +275,34 @@ async def get_job_result(job_id: str):
     return {"job_id": job_id, "result": serialize_numpy(result.result_data)}
 
 
+@app.get("/jobs/{job_id}/people/{position}/matches")
+async def get_person_matches(job_id: str, position: int, top: int = Query(5, ge=1)):
+    """Rank one person's best matches out of a completed run."""
+    result = job_service.get_job_result(job_id)
+
+    if not result:
+        raise HTTPException(
+            status_code=404, detail="Job result not found or job not completed"
+        )
+
+    matches = (result.result_data or {}).get("matches", {})
+    person = matches.get(str(position))
+    if person is None:
+        raise HTTPException(
+            status_code=404, detail=f"No person at position {position} in job {job_id}"
+        )
+
+    people = (result.result_data or {}).get("people", [])
+    name = people[position] if position < len(people) else str(position)
+
+    return {
+        "job_id": job_id,
+        "position": position,
+        "name": name,
+        "matches": serialize_numpy(person[:top]),
+    }
+
+
 @app.get("/users/{user_id}/jobs")
 async def get_user_jobs(user_id: str, status: Optional[str] = Query(None)):
     """Get all jobs for a specific user"""
