@@ -197,12 +197,8 @@ class AppCacheService:
             if target != comparison
         ]
 
-        forward = {
-            pair: self._pair_key(category, pair[0], pair[1]) for pair in wanted
-        }
-        reverse = {
-            pair: self._pair_key(category, pair[1], pair[0]) for pair in wanted
-        }
+        forward = {pair: self._pair_key(category, pair[0], pair[1]) for pair in wanted}
+        reverse = {pair: self._pair_key(category, pair[1], pair[0]) for pair in wanted}
         stored = self.store.get_many(list(forward.values()))
         stored.update(self.store.get_many(list(reverse.values())))
 
