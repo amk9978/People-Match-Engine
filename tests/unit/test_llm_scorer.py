@@ -3,10 +3,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from services.analysis.business_analyzer import (
-    BusinessAnalyzer,
-    MalformedScores,
-)
+from services.scoring.llm_scorer import LLMComplementarityScorer, MalformedScores
 from services.cache.app_cache_service import AppCacheService
 from services.cache.memory import InMemoryBackend
 
@@ -72,7 +69,7 @@ class FakeRawResponse:
 
 def make_analyzer(client=None):
     cache = AppCacheService(backend=InMemoryBackend())
-    return BusinessAnalyzer(openai_client=client or MagicMock(), cache=cache)
+    return LLMComplementarityScorer(openai_client=client or MagicMock(), cache=cache)
 
 
 @pytest.fixture

@@ -1,6 +1,3 @@
-import json
-from unittest.mock import MagicMock, patch
-
 import pytest
 
 from services.graph.scoring.generalized_mean import (
@@ -8,380 +5,112 @@ from services.graph.scoring.generalized_mean import (
     _norm_weights,
     _power_mean,
     combine_edge_weight,
-    tune_parameters,
 )
-from shared.shared import DEFAULT_FEATURE_WEIGHTS, FEATURES, OPTIMIZED_FEATURE_WEIGHTS
+from services.scoring.profile import ScoringProfile
+
+FEATURES = ("role", "experience", "industry")
 
 
-class TestTuneParameters:
-
-    @pytest.fixture
-    def mock_openai_client(self):
-        return MagicMock()
-
-    @pytest.fixture
-    def mock_chatgpt_response(self, mock_openai_client):
-        mock_response = MagicMock()
-        mock_openai_client.chat.completions.create.return_value = mock_response
-        return mock_response
-
-    def test_tune_parameters_empty_prompt_returns_defaults(self):
-        """Test that empty or None prompt returns default weights"""
-        w_s, w_c = tune_parameters("")
-        assert w_s == DEFAULT_FEATURE_WEIGHTS
-        assert w_c == OPTIMIZED_FEATURE_WEIGHTS
-
-        w_s, w_c = tune_parameters(None)
-        assert w_s == DEFAULT_FEATURE_WEIGHTS
-        assert w_c == OPTIMIZED_FEATURE_WEIGHTS
-
-        w_s, w_c = tune_parameters("   ")
-        assert w_s == DEFAULT_FEATURE_WEIGHTS
-        assert w_c == OPTIMIZED_FEATURE_WEIGHTS
-
-    @patch("services.graph.scoring.generalized_mean.openai.OpenAI")
-    def test_tune_parameters_hiring_maximization_prompt(
-        self, mock_openai_class, mock_openai_client, mock_chatgpt_response
-    ):
-        """Test ChatGPT response for hiring maximization prompt"""
-        mock_openai_class.return_value = mock_openai_client
-
-        chatgpt_json_response = {
-            "similarity_weights": {
-                "role": 0.8,
-                "experience": 0.6,
-                "industry": 1.2,
-                "market": 1.1,
-                "offering": 0.9,
-                "persona": 1.0,
-            },
-            "complementarity_weights": {
-                "role": 1.5,
-                "experience": 1.8,
-                "industry": 0.7,
-                "market": 0.8,
-                "offering": 1.3,
-                "persona": 1.1,
-            },
-        }
-
-        mock_chatgpt_response.choices = [
-            MagicMock(message=MagicMock(content=json.dumps(chatgpt_json_response)))
-        ]
-
-        w_s, w_c = tune_parameters("I want to maximize the hiring chance")
-
-        assert w_s["role"] == 0.8
-        assert w_s["experience"] == 0.6
-        assert w_s["industry"] == 1.2
-        assert w_c["role"] == 1.5
-        assert w_c["experience"] == 1.8
-        assert w_c["industry"] == 0.7
-
-        mock_openai_client.chat.completions.create.assert_called_once()
-
-    @patch("services.graph.scoring.generalized_mean.openai.OpenAI")
-    def test_tune_parameters_peer_networking_prompt(
-        self, mock_openai_class, mock_openai_client, mock_chatgpt_response
-    ):
-        """Test ChatGPT response for peer networking prompt"""
-        mock_openai_class.return_value = mock_openai_client
-
-        chatgpt_json_response = {
-            "similarity_weights": {
-                "role": 1.8,
-                "experience": 1.6,
-                "industry": 1.5,
-                "market": 1.3,
-                "offering": 1.2,
-                "persona": 1.7,
-            },
-            "complementarity_weights": {
-                "role": 0.3,
-                "experience": 0.4,
-                "industry": 0.5,
-                "market": 0.6,
-                "offering": 0.5,
-                "persona": 0.4,
-            },
-        }
-
-        mock_chatgpt_response.choices = [
-            MagicMock(message=MagicMock(content=json.dumps(chatgpt_json_response)))
-        ]
-
-        w_s, w_c = tune_parameters("I want to maximize peer networking")
-
-        assert w_s["role"] == 1.8
-        assert w_s["experience"] == 1.6
-        assert w_s["persona"] == 1.7
-        assert w_c["role"] == 0.3
-        assert w_c["experience"] == 0.4
-        assert w_c["persona"] == 0.4
-
-    @patch("services.graph.scoring.generalized_mean.openai.OpenAI")
-    def test_tune_parameters_business_partnerships_prompt(
-        self, mock_openai_class, mock_openai_client, mock_chatgpt_response
-    ):
-        """Test ChatGPT response for business partnerships prompt"""
-        mock_openai_class.return_value = mock_openai_client
-
-        chatgpt_json_response = {
-            "similarity_weights": {
-                "role": 0.9,
-                "experience": 1.0,
-                "industry": 1.6,
-                "market": 0.7,
-                "offering": 0.8,
-                "persona": 1.1,
-            },
-            "complementarity_weights": {
-                "role": 1.1,
-                "experience": 1.2,
-                "industry": 0.8,
-                "market": 1.8,
-                "offering": 1.9,
-                "persona": 1.0,
-            },
-        }
-
-        mock_chatgpt_response.choices = [
-            MagicMock(message=MagicMock(content=json.dumps(chatgpt_json_response)))
-        ]
-
-        w_s, w_c = tune_parameters("I want to maximize business partnerships")
-
-        assert w_s["industry"] == 1.6
-        assert w_s["market"] == 0.7
-        assert w_s["offering"] == 0.8
-        assert w_c["market"] == 1.8
-        assert w_c["offering"] == 1.9
-
-    @patch("services.graph.scoring.generalized_mean.openai.OpenAI")
-    def test_tune_parameters_weight_clamping(
-        self, mock_openai_class, mock_openai_client, mock_chatgpt_response
-    ):
-        """Test that weights above 2.0 are clamped to 2.0"""
-        mock_openai_class.return_value = mock_openai_client
-
-        chatgpt_json_response = {
-            "similarity_weights": {
-                "role": 3.5,
-                "experience": 2.8,
-                "industry": 1.2,
-                "market": 1.1,
-                "offering": 0.9,
-                "persona": 1.0,
-            },
-            "complementarity_weights": {
-                "role": 1.5,
-                "experience": 4.2,
-                "industry": 0.7,
-                "market": 0.8,
-                "offering": 1.3,
-                "persona": 1.1,
-            },
-        }
-
-        mock_chatgpt_response.choices = [
-            MagicMock(message=MagicMock(content=json.dumps(chatgpt_json_response)))
-        ]
-
-        w_s, w_c = tune_parameters("test prompt")
-
-        assert w_s["role"] == 2.0
-        assert w_s["experience"] == 2.0
-        assert w_c["experience"] == 2.0
-
-    @patch("services.graph.scoring.generalized_mean.openai.OpenAI")
-    def test_tune_parameters_invalid_json_fallback(
-        self, mock_openai_class, mock_openai_client, mock_chatgpt_response
-    ):
-        """Test fallback to defaults when ChatGPT returns invalid JSON"""
-        mock_openai_class.return_value = mock_openai_client
-        mock_chatgpt_response.choices = [
-            MagicMock(message=MagicMock(content="This is not valid JSON"))
-        ]
-
-        w_s, w_c = tune_parameters("test prompt")
-
-        assert w_s == DEFAULT_FEATURE_WEIGHTS
-        assert w_c == OPTIMIZED_FEATURE_WEIGHTS
-
-    @patch("services.graph.scoring.generalized_mean.openai.OpenAI")
-    def test_tune_parameters_missing_features_fallback(
-        self, mock_openai_class, mock_openai_client, mock_chatgpt_response
-    ):
-        """Test fallback for missing features in ChatGPT response"""
-        mock_openai_class.return_value = mock_openai_client
-
-        chatgpt_json_response = {
-            "similarity_weights": {"role": 1.5, "experience": 1.2},
-            "complementarity_weights": {"role": 0.8},
-        }
-
-        mock_chatgpt_response.choices = [
-            MagicMock(message=MagicMock(content=json.dumps(chatgpt_json_response)))
-        ]
-
-        w_s, w_c = tune_parameters("test prompt")
-
-        assert w_s["role"] == 1.5
-        assert w_s["experience"] == 1.2
-        assert w_s["industry"] == DEFAULT_FEATURE_WEIGHTS["industry"]
-        assert w_c["role"] == 0.8
-        assert w_c["experience"] == OPTIMIZED_FEATURE_WEIGHTS["experience"]
-
-    @patch("services.graph.scoring.generalized_mean.openai.OpenAI")
-    def test_tune_parameters_api_exception_fallback(
-        self, mock_openai_class, mock_openai_client
-    ):
-        """Test fallback to defaults when OpenAI API raises exception"""
-        mock_openai_class.return_value = mock_openai_client
-        mock_openai_client.chat.completions.create.side_effect = Exception("API Error")
-
-        w_s, w_c = tune_parameters("test prompt")
-
-        assert w_s == DEFAULT_FEATURE_WEIGHTS
-        assert w_c == OPTIMIZED_FEATURE_WEIGHTS
+def flat(value):
+    return {feature: value for feature in FEATURES}
 
 
-class TestHelperFunctions:
+class TestClamp:
+    @pytest.mark.parametrize(
+        "value,expected", [(-1.0, 0.0), (0.0, 0.0), (0.5, 0.5), (1.0, 1.0), (2.0, 1.0)]
+    )
+    def test_values_land_in_the_unit_interval(self, value, expected):
+        assert _clamp01(value) == expected
 
-    def test_clamp01(self):
-        """Test _clamp01 function"""
-        assert _clamp01(-0.5) == 0.0
-        assert _clamp01(0.3) == 0.3
-        assert _clamp01(1.5) == 1.0
-        assert _clamp01(0.0) == 0.0
-        assert _clamp01(1.0) == 1.0
 
-    def test_norm_weights_scalar(self):
-        """Test _norm_weights with scalar input"""
-        feats = ["role", "experience", "industry"]
-        result = _norm_weights(1.0, feats)
-        expected_weight = 1.0 / len(feats)
+class TestNormWeights:
+    def test_weights_sum_to_one(self):
+        normalized = _norm_weights({"a": 2.0, "b": 6.0}, ["a", "b"])
+        assert normalized == {"a": 0.25, "b": 0.75}
 
-        for feat in feats:
-            assert result[feat] == expected_weight
+    def test_all_zero_weights_become_uniform(self):
+        normalized = _norm_weights({"a": 0.0, "b": 0.0}, ["a", "b"])
+        assert normalized == {"a": 0.5, "b": 0.5}
 
-    def test_norm_weights_dict(self):
-        """Test _norm_weights with dictionary input"""
-        feats = ["role", "experience", "industry"]
-        weights = {"role": 2.0, "experience": 1.0, "industry": 1.0}
-        result = _norm_weights(weights, feats)
+    def test_negative_weights_are_treated_as_zero(self):
+        normalized = _norm_weights({"a": -3.0, "b": 1.0}, ["a", "b"])
+        assert normalized == {"a": 0.0, "b": 1.0}
 
-        total = sum(weights[f] for f in feats)
-        assert result["role"] == 2.0 / total
-        assert result["experience"] == 1.0 / total
-        assert result["industry"] == 1.0 / total
+    def test_an_absent_feature_weighs_nothing(self):
+        normalized = _norm_weights({"a": 1.0}, ["a", "b"])
+        assert normalized == {"a": 1.0, "b": 0.0}
 
-    def test_norm_weights_zero_sum(self):
-        """Test _norm_weights with weights summing to zero"""
-        feats = ["role", "experience"]
-        weights = {"role": 0.0, "experience": 0.0}
-        result = _norm_weights(weights, feats)
 
-        assert result["role"] == 0.5
-        assert result["experience"] == 0.5
+class TestPowerMean:
+    def test_p_of_one_is_the_arithmetic_mean(self):
+        result = _power_mean({"a": 0.4, "b": 0.6}, {"a": 0.5, "b": 0.5}, 1.0)
+        assert result == pytest.approx(0.5)
 
-    def test_power_mean_geometric(self):
-        """Test _power_mean with geometric mean (p=0)"""
-        values = {"role": 0.4, "experience": 0.6}
-        weights = {"role": 0.5, "experience": 0.5}
-        result = _power_mean(values, weights, 0.0)
+    def test_p_of_zero_is_the_geometric_mean(self):
+        result = _power_mean({"a": 0.25, "b": 1.0}, {"a": 0.5, "b": 0.5}, 0.0)
+        assert result == pytest.approx(0.5)
 
-        expected = (0.4**0.5) * (0.6**0.5)
-        assert abs(result - expected) < 1e-10
+    def test_no_shared_feature_scores_zero(self):
+        assert _power_mean({"a": 0.5}, {"b": 1.0}, 1.0) == 0.0
 
-    def test_power_mean_arithmetic(self):
-        """Test _power_mean with arithmetic mean (p=1)"""
-        values = {"role": 0.4, "experience": 0.6}
-        weights = {"role": 0.5, "experience": 0.5}
-        result = _power_mean(values, weights, 1.0)
-
-        expected = 0.5 * 0.4 + 0.5 * 0.6
-        assert abs(result - expected) < 1e-10
+    def test_a_zero_value_does_not_blow_up_the_geometric_mean(self):
+        result = _power_mean({"a": 0.0, "b": 1.0}, {"a": 0.5, "b": 0.5}, 0.0)
+        assert 0.0 <= result < 0.01
 
 
 class TestCombineEdgeWeight:
-
-    def test_combine_edge_weight_basic(self):
-        """Test basic functionality of combine_edge_weight"""
-        sim = {f: 0.5 for f in FEATURES}
-        comp = {f: 0.7 for f in FEATURES}
-        w_s = {f: 1.0 for f in FEATURES}
-        w_c = {f: 1.0 for f in FEATURES}
-
-        result = combine_edge_weight(sim, comp, w_s, w_c)
-
+    def test_an_ordinary_pair_scores_inside_the_unit_interval(self):
+        result = combine_edge_weight(flat(0.5), flat(0.7), flat(1.0), flat(1.0))
         assert 0.0 < result <= 1.0
 
-    def test_combine_edge_weight_empty_features(self):
-        """Test combine_edge_weight with no matching features"""
-        sim = {}
-        comp = {}
-        w_s = {f: 1.0 for f in FEATURES}
-        w_c = {f: 1.0 for f in FEATURES}
+    def test_no_shared_feature_scores_zero(self):
+        assert combine_edge_weight({}, {}, flat(1.0), flat(1.0)) == 0.0
 
-        result = combine_edge_weight(sim, comp, w_s, w_c)
+    def test_only_features_present_in_both_signals_count(self):
+        both = combine_edge_weight(
+            {"role": 0.9, "market": 0.1}, {"role": 0.9}, flat(1.0), flat(1.0)
+        )
+        role_only = combine_edge_weight(
+            {"role": 0.9}, {"role": 0.9}, flat(1.0), flat(1.0)
+        )
+        assert both == role_only
 
-        assert result == 0.0
+    def test_a_lopsided_pair_scores_below_a_balanced_one(self):
+        balanced = combine_edge_weight(flat(0.6), flat(0.6), flat(1.0), flat(1.0))
+        lopsided = combine_edge_weight(flat(1.0), flat(0.2), flat(1.0), flat(1.0))
+        assert lopsided < balanced
 
-    def test_combine_edge_weight_extreme_values(self):
-        """Test combine_edge_weight with extreme similarity/complementarity values"""
-        sim_high = {f: 1.0 for f in FEATURES}
-        comp_low = {f: 0.1 for f in FEATURES}
-        w_s = {f: 1.0 for f in FEATURES}
-        w_c = {f: 1.0 for f in FEATURES}
+    def test_raising_both_signals_raises_the_edge(self):
+        weak = combine_edge_weight(flat(0.3), flat(0.3), flat(1.0), flat(1.0))
+        strong = combine_edge_weight(flat(0.8), flat(0.8), flat(1.0), flat(1.0))
+        assert strong > weak
 
-        result = combine_edge_weight(sim_high, comp_low, w_s, w_c)
-        assert 0.0 < result <= 1.0
+    def test_weights_steer_which_feature_decides(self):
+        sim = {"role": 1.0, "market": 0.0}
+        comp = {"role": 1.0, "market": 1.0}
 
-        sim_low = {f: 0.1 for f in FEATURES}
-        comp_high = {f: 1.0 for f in FEATURES}
+        role_led = combine_edge_weight(
+            sim, comp, {"role": 1.0, "market": 0.0}, flat(1.0)
+        )
+        market_led = combine_edge_weight(
+            sim, comp, {"role": 0.0, "market": 1.0}, flat(1.0)
+        )
+        assert role_led > market_led
 
-        result2 = combine_edge_weight(sim_low, comp_high, w_s, w_c)
-        assert 0.0 < result2 <= 1.0
+    def test_a_profile_that_ignores_complementarity_follows_similarity(self):
+        similarity_only = ScoringProfile(rho=1.0, lam=1.0, eta=0.0)
 
+        strong = combine_edge_weight(
+            flat(0.9), flat(0.1), flat(1.0), flat(1.0), similarity_only
+        )
+        weak = combine_edge_weight(
+            flat(0.1), flat(0.9), flat(1.0), flat(1.0), similarity_only
+        )
+        assert strong > weak
 
-class TestIntegration:
-
-    @patch("services.graph.scoring.generalized_mean.openai.OpenAI")
-    def test_tune_parameters_integration_with_combine_edge_weight(
-        self, mock_openai_class
-    ):
-        """Test integration between tune_parameters and combine_edge_weight"""
-        mock_client = MagicMock()
-        mock_openai_class.return_value = mock_client
-
-        mock_response = MagicMock()
-        mock_response.choices = [
-            MagicMock(
-                message=MagicMock(
-                    content=json.dumps(
-                        {
-                            "similarity_weights": {f: 1.2 for f in FEATURES},
-                            "complementarity_weights": {f: 0.8 for f in FEATURES},
-                        }
-                    )
-                )
-            )
-        ]
-        mock_client.chat.completions.create.return_value = mock_response
-
-        w_s, w_c = tune_parameters("maximize peer networking")
-
-        sim = {f: 0.6 for f in FEATURES}
-        comp = {f: 0.4 for f in FEATURES}
-
-        result = combine_edge_weight(sim, comp, w_s, w_c)
-        assert 0.0 < result <= 1.0
-
-        for feature in FEATURES:
-            assert w_s[feature] == 1.2
-            assert w_c[feature] == 0.8
-
-
-if __name__ == "__main__":
-    pytest.main([__file__])
+    def test_the_default_profile_is_used_when_none_is_given(self):
+        assert combine_edge_weight(
+            flat(0.5), flat(0.5), flat(1.0), flat(1.0)
+        ) == combine_edge_weight(
+            flat(0.5), flat(0.5), flat(1.0), flat(1.0), ScoringProfile()
+        )

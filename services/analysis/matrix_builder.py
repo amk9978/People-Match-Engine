@@ -1,13 +1,13 @@
 import logging
-from typing import Dict, List, Set
+from typing import Dict, List
 
 import numpy as np
 import pandas as pd
 
-from services.analysis.business_analyzer import BusinessAnalyzer
-from services.analysis.dataset_insights import DatasetInsightsAnalyzer
-from services.analysis.scoring_report import ScoringReport
-from shared.shared import FEATURE_COLUMN_MAPPING, FEATURES
+from services.features.feature_set import FeatureSet
+from services.scoring.complementarity_scorer import ComplementarityScorer
+from services.scoring.llm_scorer import LLMComplementarityScorer
+from services.scoring.report import ScoringReport
 
 logger = logging.getLogger(__name__)
 
@@ -16,140 +16,114 @@ UNKNOWN_PAIR_SCORE = 0.5
 
 
 class MatrixBuilder:
-    """Builds one complementarity matrix per feature from the profiles in a dataset.
+    """Holds one profile-by-profile complementarity matrix per feature.
 
     A profile is the raw cell value for that feature, so two people with the same
-    cell share a score and the matrices are sized by distinct profiles rather
-    than by people."""
+    cell share a score and the matrices are sized by distinct profiles rather than
+    by people. Matrices start raw so informativeness can be measured from their
+    spread, then are replaced by calibrated ones before any edge is scored.
+    """
 
-    def __init__(
-        self,
-        business_analyzer: BusinessAnalyzer = None,
-        insight_analyzer: DatasetInsightsAnalyzer = None,
-    ):
-        self.business_analyzer = business_analyzer or BusinessAnalyzer()
-        self.insight_analyzer = insight_analyzer or DatasetInsightsAnalyzer()
+    def __init__(self, scorer: ComplementarityScorer = None):
+        self.scorer = scorer or LLMComplementarityScorer()
         self.scoring_report = ScoringReport()
-        self._matrices = {}
-        self._person_profiles = {}
+        self._profiles: Dict[str, List[str]] = {}
+        self._positions: Dict[str, Dict[str, int]] = {}
+        self._matrices: Dict[str, np.ndarray] = {}
+        self._person_profiles: Dict[int, Dict[str, str]] = {}
 
-    async def build_all_complementarity_matrices(
-        self, csv_path: str
-    ) -> Dict[str, Dict[str, Dict[str, float]]]:
-        profiles_by_feature = self._extract_profiles(csv_path)
-
-        matrices = {}
+    async def build(self, df: pd.DataFrame, feature_set: FeatureSet) -> None:
+        """Score every distinct profile pair for every feature."""
         report = ScoringReport()
 
-        for feature, profiles in profiles_by_feature.items():
-            profile_list = sorted(profiles)
-            logger.info(f"Feature {feature}: {len(profile_list)} distinct profiles")
+        for feature in feature_set:
+            profiles = self._distinct_profiles(df, feature.column)
+            self._profiles[feature.name] = profiles
+            self._positions[feature.name] = {
+                profile: index for index, profile in enumerate(profiles)
+            }
 
-            result = await self.business_analyzer.get_profile_complementarity(
-                profile_list, profile_list, feature
+            logger.info(f"Feature {feature.name}: {len(profiles)} distinct profiles")
+            result = await self.scorer.get_profile_complementarity(
+                profiles, profiles, feature.name
             )
-            matrices[feature] = self._as_matrix(profile_list, result.scores)
+            self._matrices[feature.name] = self._as_matrix(profiles, result.scores)
             report = report.merge(result.report)
 
         self.scoring_report = report
         logger.info(f"Complementarity scoring complete: {report.to_dict()}")
-        return matrices
 
-    def _extract_profiles(self, csv_path: str) -> Dict[str, Set[str]]:
-        df = pd.read_csv(csv_path)
-        profiles = {}
-
-        for feature in FEATURES:
-            column = FEATURE_COLUMN_MAPPING[feature]
-            if column not in df.columns:
-                logger.warning(f"Feature {feature}: column {column} is absent")
-                profiles[feature] = set()
-                continue
-
-            values = df[column].dropna().astype(str).str.strip()
-            profiles[feature] = {value for value in values if value}
-
-        return profiles
+    def _distinct_profiles(self, df: pd.DataFrame, column: str) -> List[str]:
+        values = df[column].dropna().astype(str).str.strip()
+        return sorted({value for value in values if value})
 
     def _as_matrix(
-        self, profile_list: List[str], scores: Dict[str, Dict[str, float]]
-    ) -> Dict[str, Dict[str, float]]:
-        matrix = {}
-        for source in profile_list:
-            row = dict(scores.get(source, {}))
-            row[source] = SELF_COMPLEMENTARITY
-            matrix[source] = row
+        self, profiles: List[str], scores: Dict[str, Dict[str, float]]
+    ) -> np.ndarray:
+        matrix = np.zeros((len(profiles), len(profiles)))
+        positions = {profile: index for index, profile in enumerate(profiles)}
+
+        for source, row in scores.items():
+            i = positions.get(source)
+            if i is None:
+                continue
+            for target, score in row.items():
+                j = positions.get(target)
+                if j is not None:
+                    matrix[i, j] = score
+
+        np.fill_diagonal(matrix, SELF_COMPLEMENTARITY)
         return matrix
 
-    def load_matrices_into_memory(
-        self, matrices: Dict[str, Dict[str, Dict[str, float]]]
-    ) -> None:
+    def raw_matrices(self) -> Dict[str, np.ndarray]:
+        return dict(self._matrices)
+
+    def apply_calibrated(self, matrices: Dict[str, np.ndarray]) -> None:
+        assert set(matrices) == set(
+            self._matrices
+        ), "calibrated matrices must cover exactly the scored features"
         self._matrices = dict(matrices)
 
-    def get_complementarity_matrices(self) -> Dict[str, np.ndarray]:
-        """Render each feature's matrix as a numpy array for the insight analyzer."""
-        numpy_matrices = {}
-
-        for feature in FEATURES:
-            if feature not in self._matrices:
-                continue
-
-            matrix_dict = self._matrices[feature]
-            profiles = list(matrix_dict.keys())
-            numpy_matrix = np.zeros((len(profiles), len(profiles)))
-
-            for i, source in enumerate(profiles):
-                row = matrix_dict[source]
-                for j, target in enumerate(profiles):
-                    if target in row:
-                        numpy_matrix[i, j] = row[target]
-
-            numpy_matrices[feature] = self.insight_analyzer.normalize_matrix(
-                numpy_matrix, preserve_diagonal=False
-            )
-
-        return numpy_matrices
-
-    async def precompute_person_tags(self, df: pd.DataFrame, embedding_builder) -> None:
+    def index_people(self, df: pd.DataFrame, feature_set: FeatureSet) -> None:
         """Record each person's profile string per feature, keyed by row position."""
         assert df.index.equals(
             pd.RangeIndex(len(df))
         ), "people are addressed by position; the frame must be indexed 0..n-1"
 
-        self._person_profiles = {}
-        for position in range(len(df)):
-            row = df.iloc[position]
-            self._person_profiles[position] = {
-                feature: str(row.get(column, "")).strip()
-                for feature, column in FEATURE_COLUMN_MAPPING.items()
+        self._person_profiles = {
+            position: {
+                feature.name: str(df.iloc[position].get(feature.column, "")).strip()
+                for feature in feature_set
             }
+            for position in range(len(df))
+        }
 
     def _get_complementarity_score(
-        self, person_i: int, person_j: int, category: str
+        self, person_i: int, person_j: int, feature_name: str
     ) -> float:
-        source = self._person_profiles.get(person_i, {}).get(category, "")
-        target = self._person_profiles.get(person_j, {}).get(category, "")
+        source = self._person_profiles.get(person_i, {}).get(feature_name, "")
+        target = self._person_profiles.get(person_j, {}).get(feature_name, "")
+        positions = self._positions.get(feature_name, {})
 
-        if not source or not target:
+        i = positions.get(source)
+        j = positions.get(target)
+        if i is None or j is None:
             return UNKNOWN_PAIR_SCORE
 
-        matrix = self._matrices.get(category, {})
-
-        if source in matrix and target in matrix[source]:
-            return matrix[source][target]
-        if target in matrix and source in matrix[target]:
-            return matrix[target][source]
-
-        return UNKNOWN_PAIR_SCORE
+        return float(self._matrices[feature_name][i, j])
 
     def get_all_complementarities(
         self, person_i: int, person_j: int
     ) -> Dict[str, float]:
         return {
-            feature: self._get_complementarity_score(person_i, person_j, feature)
-            for feature in FEATURES
+            feature_name: self._get_complementarity_score(
+                person_i, person_j, feature_name
+            )
+            for feature_name in self._matrices
         }
 
     def clear_cache(self) -> None:
         self._person_profiles.clear()
         self._matrices.clear()
+        self._profiles.clear()
+        self._positions.clear()

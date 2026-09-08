@@ -1,39 +1,42 @@
 import logging
-from typing import List
+from typing import Optional
 
 import pandas as pd
 
-logger = logging.getLogger(__name__)
+from services.features.feature_set import FeatureSet
+from services.features.schema_mapper import SchemaMapper
 
-ESSENTIAL_COLUMNS = [
-    "Person Name",
-    "Person Title",
-    "Person Company",
-    "Professional Identity - Role Specification",
-    "Professional Identity - Experience Level",
-    "Company Identity - Industry Classification",
-    "Company Market - Market Traction",
-    "Company Offering - Value Proposition",
-    "All Persona Titles",
-]
+logger = logging.getLogger(__name__)
 
 
 class CSVLoader:
-    """Loads a roster CSV and drops rows missing data the analysis requires.
+    """Loads a roster CSV, derives its feature set, and drops unusable rows.
 
-    The returned frame is always indexed 0..n-1. Downstream code addresses people
-    by position, so a gapped index would score one person under another's name.
+    The feature set comes from a mapping file when one is given and from the
+    dataset's own columns otherwise, so no column name is compiled into the
+    engine. The returned frame is always indexed 0..n-1, because downstream code
+    addresses people by position and a gapped index would score one person under
+    another's name.
     """
 
-    def __init__(self, csv_path: str):
+    def __init__(
+        self,
+        csv_path: str,
+        mapping_path: Optional[str] = None,
+        schema_mapper: SchemaMapper = None,
+    ):
         self.csv_path = csv_path
+        self.mapping_path = mapping_path
+        self.schema_mapper = schema_mapper or SchemaMapper()
         self.df = None
+        self.feature_set: Optional[FeatureSet] = None
 
     def load_data(self) -> pd.DataFrame:
-        self.df = pd.read_csv(self.csv_path)
-        original_count = len(self.df)
+        raw = pd.read_csv(self.csv_path)
+        original_count = len(raw)
 
-        self.df = self.filter_incomplete_rows(self.df)
+        self.feature_set = self._resolve_feature_set(raw)
+        self.df = self.filter_incomplete_rows(raw, self.feature_set)
         removed_count = original_count - len(self.df)
 
         if removed_count:
@@ -49,38 +52,24 @@ class CSVLoader:
         ), "loaded frame must be indexed by position"
         return self.df
 
-    def filter_incomplete_rows(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Drop rows with a blank essential column and reindex by position."""
-        present_columns = [
-            column for column in ESSENTIAL_COLUMNS if column in df.columns
-        ]
-        missing_columns = [
-            column for column in ESSENTIAL_COLUMNS if column not in df.columns
-        ]
+    def _resolve_feature_set(self, df: pd.DataFrame) -> FeatureSet:
+        if self.mapping_path:
+            return self.schema_mapper.from_file(self.mapping_path, df)
+        return self.schema_mapper.detect(df)
 
-        if missing_columns:
-            logger.warning(f"Dataset is missing expected columns: {missing_columns}")
-
+    def filter_incomplete_rows(
+        self, df: pd.DataFrame, feature_set: FeatureSet
+    ) -> pd.DataFrame:
+        """Drop rows with a blank required column and reindex by position."""
         mask = pd.Series(True, index=df.index)
 
-        for column in present_columns:
+        for column in feature_set.required_columns():
             values = df[column].astype(str).str.strip()
             column_mask = df[column].notna() & (values != "") & (values != "nan")
             mask = mask & column_mask
 
-            dropped_by_column = int((~column_mask).sum())
-            if dropped_by_column:
-                logger.info(f"Column {column}: {dropped_by_column} rows blank")
+            dropped = int((~column_mask).sum())
+            if dropped:
+                logger.info(f"Column {column}: {dropped} rows blank")
 
         return df[mask].reset_index(drop=True)
-
-    def get_feature_columns(self) -> dict:
-        """Map feature names to the columns that carry them."""
-        return {
-            "role": "Professional Identity - Role Specification",
-            "experience": "Professional Identity - Experience Level",
-            "industry": "Company Identity - Industry Classification",
-            "market": "Company Market - Market Traction",
-            "offering": "Company Offering - Value Proposition",
-            "personas": "All Persona Titles",
-        }

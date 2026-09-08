@@ -1,6 +1,5 @@
 import itertools
 import logging
-import sys
 from collections import defaultdict
 from typing import Dict, List, Optional, Set
 
@@ -10,13 +9,8 @@ import numpy as np
 import pandas as pd
 from sklearn.manifold import MDS
 
-from shared.shared import FEATURE_COLUMN_MAPPING, FEATURES
+from services.features.feature_set import FeatureSet
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)],
-)
 logger = logging.getLogger(__name__)
 
 
@@ -35,31 +29,21 @@ class SubgraphAnalyzer:
         matrix_builder=None,
         tuned_w_s: Optional[Dict[str, float]] = None,
         tuned_w_c: Optional[Dict[str, float]] = None,
+        feature_set: FeatureSet = None,
     ) -> Dict:
         """Get detailed information about a subgraph"""
         if not nodes:
             return {"size": 0, "density": 0.0, "members": []}
 
-        # Create mapping from node IDs to DataFrame positions for embedding indexing
-        node_to_pos = {node_id: pos for pos, node_id in enumerate(df.index)}
+        assert feature_set is not None, "subgraph analysis needs the run's feature set"
+        assert df.index.equals(
+            pd.RangeIndex(len(df))
+        ), "nodes are row positions; the frame must be indexed 0..n-1"
 
-        valid_nodes = {node for node in nodes if node in df.index}
-        invalid_nodes = [node for node in nodes if node not in df.index]
-
-        if invalid_nodes:
-            logger.warning(
-                f"Filtering out invalid nodes not in DataFrame: {invalid_nodes}"
-            )
-
-        members = []
-        for node in valid_nodes:
-            person_data = df.loc[node]
-            members.append(
-                {
-                    "name": person_data["Person Name"],
-                    "linkedin": person_data.get("LinkedIn URL", ""),
-                }
-            )
+        valid_nodes = set(nodes)
+        members = [
+            {"name": df.iloc[node][feature_set.name_column]} for node in valid_nodes
+        ]
 
         subgraph = graph.subgraph(valid_nodes)
         density = self.calculate_subgraph_density(valid_nodes, graph)
@@ -76,8 +60,8 @@ class SubgraphAnalyzer:
         edges_data = []
         for u, v, data in edges_with_weights:
             if u in df.index and v in df.index:
-                source_name = df.loc[u]["Person Name"]
-                target_name = df.loc[v]["Person Name"]
+                source_name = df.iloc[u][feature_set.name_column]
+                target_name = df.iloc[v][feature_set.name_column]
                 edges_data.append(
                     {
                         "source": source_name,
@@ -96,7 +80,7 @@ class SubgraphAnalyzer:
 
         if matrix_builder and tuned_w_s and tuned_w_c:
             complementarity_insights = self.analyze_complementarity_centroids(
-                valid_nodes, matrix_builder, tuned_w_s, tuned_w_c
+                valid_nodes, matrix_builder, tuned_w_s, tuned_w_c, feature_set
             )
 
             hybrid_insights = self.analyze_hybrid_centroids(
@@ -106,14 +90,15 @@ class SubgraphAnalyzer:
                 tuned_w_s,
                 tuned_w_c,
                 df,
+                feature_set,
             )
 
             feature_importance_analysis = self.analyze_feature_importance(
-                valid_nodes, graph, matrix_builder, tuned_w_s, tuned_w_c
+                valid_nodes, graph, matrix_builder, tuned_w_s, tuned_w_c, feature_set
             )
 
             dataset_values_analysis = self.analyze_dataset_values(
-                valid_nodes, df, matrix_builder
+                valid_nodes, df, matrix_builder, feature_set
             )
 
         weighted_communities = self.detect_weighted_communities(valid_nodes, graph)
@@ -125,7 +110,12 @@ class SubgraphAnalyzer:
         replication_recommendations = {}
         if matrix_builder and tuned_w_s and tuned_w_c and feature_embeddings:
             replication_recommendations = self.get_optimal_nodes_for_replication(
-                df, matrix_builder, feature_embeddings, tuned_w_s, tuned_w_c, top_k=5
+                df,
+                matrix_builder,
+                feature_embeddings,
+                tuned_w_s,
+                tuned_w_c,
+                feature_set,
             )
 
         result = {
@@ -137,7 +127,7 @@ class SubgraphAnalyzer:
             "edges": len(edges_with_weights),
             "edges_data": edges_data,
             "centroid_insights": self.analyze_subgraph_centroids(
-                valid_nodes, feature_embeddings, df
+                valid_nodes, feature_embeddings
             ),
             "complementarity_insights": complementarity_insights,
             "hybrid_insights": hybrid_insights,
@@ -149,9 +139,27 @@ class SubgraphAnalyzer:
             "replication_recommendations": replication_recommendations,
         }
 
-        legacy_subgroups = self.analyze_subgroups(valid_nodes, graph, df)
+        legacy_subgroups = self.analyze_subgroups(valid_nodes, graph, df, feature_set)
         result.update(legacy_subgroups)
         return result
+
+    def _describe_person(self, person_data: pd.Series, feature_set: FeatureSet) -> Dict:
+        described = {
+            "name": person_data[feature_set.name_column],
+            "company": self._company_of(person_data, feature_set),
+        }
+        described.update(
+            {
+                feature.name: str(person_data.get(feature.column, "")).strip()
+                for feature in feature_set
+            }
+        )
+        return described
+
+    def _company_of(self, person_data: pd.Series, feature_set: FeatureSet) -> str:
+        if not feature_set.company_column:
+            return ""
+        return str(person_data.get(feature_set.company_column, ""))
 
     def calculate_subgraph_density(self, nodes: Set[int], graph: nx.Graph) -> float:
         """Calculate WEIGHTED density of a subgraph given a set of nodes"""
@@ -173,23 +181,16 @@ class SubgraphAnalyzer:
         self,
         nodes: Set[int],
         feature_embeddings: Dict[str, np.ndarray],
-        df: pd.DataFrame,
     ) -> Dict:
         """Analyze centroids to identify which feature values make the subgraph dense"""
-        # Create mapping from node IDs to DataFrame positions for embedding indexing
-        node_to_pos = {node_id: pos for pos, node_id in enumerate(df.index)}
-
         centroids = {}
+        positions = sorted(nodes)
 
         for feature_name, embeddings in feature_embeddings.items():
-            valid_positions = [
-                node_to_pos[node] for node in nodes if node in node_to_pos
-            ]
-            subgraph_embeddings = embeddings[valid_positions]
-            centroid = np.mean(subgraph_embeddings, axis=0)
+            centroid = np.mean(embeddings[positions], axis=0)
 
             closest_to_centroid = self._find_nodes_closest_to_centroid(
-                nodes, embeddings, centroid, feature_name, node_to_pos
+                nodes, embeddings, centroid, feature_name
             )
 
             centroids[feature_name] = {
@@ -206,18 +207,14 @@ class SubgraphAnalyzer:
         embeddings: np.ndarray,
         centroid: np.ndarray,
         feature_name: str,
-        node_to_pos: Dict[int, int],
         top_k: int = 5,
     ) -> List[Dict]:
         """Find nodes within subgraph that are closest to centroid - these drive density"""
         if not nodes:
             return []
 
-        node_list = list(nodes)
-        valid_positions = [
-            node_to_pos[node] for node in node_list if node in node_to_pos
-        ]
-        subgraph_embeddings = embeddings[valid_positions]
+        node_list = sorted(nodes)
+        subgraph_embeddings = embeddings[node_list]
 
         centroid_norm = np.linalg.norm(centroid)
         if centroid_norm == 0:
@@ -256,7 +253,7 @@ class SubgraphAnalyzer:
             }
 
         node_list = list(nodes)
-        feature_categories = FEATURES
+        feature_categories = feature_set.names
 
         complementarity_patterns = {}
 
@@ -333,7 +330,11 @@ class SubgraphAnalyzer:
         }
 
     def analyze_subgroups(
-        self, nodes: Set[int], graph: nx.Graph, df: pd.DataFrame
+        self,
+        nodes: Set[int],
+        graph: nx.Graph,
+        df: pd.DataFrame,
+        feature_set: FeatureSet,
     ) -> Dict:
         """Analyze cohesive subgroups within the dense subgraph"""
         if len(nodes) < 4:
@@ -376,18 +377,10 @@ class SubgraphAnalyzer:
                 else:
                     avg_weight = 0.0
 
-                members = []
-                for node in community:
-                    person_data = df.loc[node]
-                    members.append(
-                        {
-                            "name": person_data["Person Name"],
-                            "company": person_data["Person Company"],
-                            "role": person_data.get(
-                                "Professional Identity - Role Specification", ""
-                            ),
-                        }
-                    )
+                members = [
+                    self._describe_person(df.iloc[node], feature_set)
+                    for node in community
+                ]
 
                 subgroups.append(
                     {
@@ -1344,20 +1337,15 @@ class SubgraphAnalyzer:
                 "summary": "Insufficient nodes for hybrid analysis",
             }
 
-        # Create mapping from node IDs to DataFrame positions for embedding indexing
-        node_to_pos = {node_id: pos for pos, node_id in enumerate(df.index)}
-        node_list = list(nodes)
-        feature_categories = FEATURES
+        node_list = sorted(nodes)
+        feature_categories = feature_set.names
         hybrid_patterns = {}
 
         for category in feature_categories:
             if category not in feature_embeddings:
                 continue
 
-            valid_positions = [
-                node_to_pos[node] for node in node_list if node in node_to_pos
-            ]
-            category_embeddings = feature_embeddings[category][valid_positions]
+            category_embeddings = feature_embeddings[category][node_list]
 
             embedding_similarities = []
             complementarity_scores = []
@@ -1442,7 +1430,7 @@ class SubgraphAnalyzer:
 
         node_list = list(nodes)
         subgraph = graph.subgraph(nodes)
-        feature_categories = FEATURES
+        feature_categories = feature_set.names
 
         feature_contributions = {}
         total_subgraph_weight = sum(
@@ -1561,15 +1549,14 @@ class SubgraphAnalyzer:
         node_list = list(nodes)
         member_profiles = []
 
-        feature_columns = FEATURE_COLUMN_MAPPING
+        feature_columns = feature_set.columns
 
         for node_idx in node_list:
-            person_data = df.loc[node_idx]
+            person_data = df.iloc[node_idx]
             profile = {
                 "node_id": int(node_idx),
-                "name": person_data["Person Name"],
-                "company": person_data.get("Person Company", ""),
-                "linkedin": person_data.get("LinkedIn URL", ""),
+                "name": person_data[feature_set.name_column],
+                "company": self._company_of(person_data, feature_set),
                 "features": {},
             }
 
@@ -1763,10 +1750,10 @@ class SubgraphAnalyzer:
         feature_embeddings: Dict[str, np.ndarray],
         tuned_w_s: Dict[str, float],
         tuned_w_c: Dict[str, float],
-        top_k: int = 5,
+        feature_set: FeatureSet,
     ) -> Dict:
         """
-        Greedy approach: Find the top node in each of the 6 matrices (sim/comp for each feature).
+        Greedy approach: find the top node in each feature's chosen matrix.
         Returns optimal feature profile composed of best values from each matrix.
         """
         if not tuned_w_s or not tuned_w_c:
@@ -1776,10 +1763,10 @@ class SubgraphAnalyzer:
                 "matrix_champions": [],
             }
 
-        feature_categories = FEATURES
+        feature_categories = feature_set.names
 
         matrix_selections = self._determine_optimal_matrix_selection(
-            tuned_w_s, tuned_w_c
+            tuned_w_s, tuned_w_c, feature_set
         )
 
         matrix_champions = []
@@ -1796,6 +1783,7 @@ class SubgraphAnalyzer:
                 feature,
                 matrix_type,
                 weight_value,
+                feature_set,
             )
 
             if champion_node:
@@ -1816,182 +1804,14 @@ class SubgraphAnalyzer:
             ),
         }
 
-    def _analyze_feature_priorities(
-        self, tuned_w_s: Dict[str, float], tuned_w_c: Dict[str, float]
-    ) -> Dict:
-        """Analyze which features have highest impact based on weight magnitudes"""
-        feature_priorities = []
-
-        for feature in [
-            "role",
-            "experience",
-            "persona",
-            "industry",
-            "market",
-            "offering",
-        ]:
-            w_s = tuned_w_s.get(feature, 1.0)
-            w_c = tuned_w_c.get(feature, 1.0)
-
-            # Determine which is dominant and by how much
-            total_weight = w_s + w_c
-            similarity_dominance = w_s / total_weight
-            complementarity_dominance = w_c / total_weight
-
-            # Overall impact is total magnitude of weights
-            impact_magnitude = total_weight
-
-            # Determine strategy: similarity or complementarity focused
-            if w_c > w_s:
-                dominant_type = "complementarity"
-                dominance_ratio = w_c / max(w_s, 0.1)
-            else:
-                dominant_type = "similarity"
-                dominance_ratio = w_s / max(w_c, 0.1)
-
-            feature_priorities.append(
-                {
-                    "feature": feature,
-                    "impact_magnitude": impact_magnitude,
-                    "dominant_type": dominant_type,
-                    "dominance_ratio": dominance_ratio,
-                    "similarity_weight": w_s,
-                    "complementarity_weight": w_c,
-                    "similarity_dominance": similarity_dominance,
-                    "complementarity_dominance": complementarity_dominance,
-                }
-            )
-
-        # Sort by impact magnitude (total weight importance)
-        feature_priorities.sort(key=lambda x: x["impact_magnitude"], reverse=True)
-
-        return {
-            "priority_features": feature_priorities,
-            "weight_summary": {
-                "highest_impact_feature": feature_priorities[0]["feature"],
-                "complementarity_focused_features": [
-                    f["feature"]
-                    for f in feature_priorities
-                    if f["dominant_type"] == "complementarity"
-                ],
-                "similarity_focused_features": [
-                    f["feature"]
-                    for f in feature_priorities
-                    if f["dominant_type"] == "similarity"
-                ],
-            },
-        }
-
-    def _find_highest_weighted_nodes_in_feature(
-        self,
-        df: pd.DataFrame,
-        matrix_builder,
-        feature_embeddings: Dict[str, np.ndarray],
-        feature: str,
-        dominant_type: str,  # "similarity" or "complementarity"
-        tuned_w_s: Dict[str, float],
-        tuned_w_c: Dict[str, float],
-        top_k: int = 5,
-    ) -> List[Dict]:
-        """Find nodes with highest average weighted connections in a specific feature"""
-
-        node_scores = []
-
-        for node_idx in df.index:
-            # Calculate average weighted connection strength for this node
-            total_weighted_score = 0.0
-            connection_count = 0
-
-            for other_idx in df.index:
-                if node_idx == other_idx:
-                    continue
-
-                if dominant_type == "complementarity":
-                    # Use complementarity matrix
-                    comp_scores = matrix_builder.get_all_complementarities(
-                        node_idx, other_idx
-                    )
-                    feature_score = comp_scores.get(feature, 0.5)
-                    weight = tuned_w_c.get(feature, 1.0)
-                else:
-                    # Use similarity from embeddings
-                    if feature in feature_embeddings:
-                        embeddings = feature_embeddings[feature]
-                        node_to_pos = {
-                            node_id: pos for pos, node_id in enumerate(df.index)
-                        }
-                        emb_i = (
-                            embeddings[node_to_pos[node_idx]]
-                            if node_idx in node_to_pos
-                            else None
-                        )
-                        emb_j = (
-                            embeddings[node_to_pos[other_idx]]
-                            if other_idx in node_to_pos
-                            else None
-                        )
-
-                        if emb_i is None or emb_j is None:
-                            continue
-
-                        norm_i = np.linalg.norm(emb_i)
-                        norm_j = np.linalg.norm(emb_j)
-                        if norm_i > 0 and norm_j > 0:
-                            feature_score = np.dot(emb_i, emb_j) / (norm_i * norm_j)
-                        else:
-                            feature_score = 0.0
-                    else:
-                        feature_score = 0.0
-                    weight = tuned_w_s.get(feature, 1.0)
-
-                total_weighted_score += feature_score * weight
-                connection_count += 1
-
-            avg_weighted_score = total_weighted_score / max(connection_count, 1)
-
-            # Get person details
-            person_data = df.loc[node_idx]
-
-            node_scores.append(
-                {
-                    "node_idx": int(node_idx),
-                    "name": person_data.get("Person Name", "Unknown"),
-                    "company": person_data.get("Person Company", ""),
-                    "feature": feature,
-                    "dominant_type": dominant_type,
-                    "avg_weighted_score": float(avg_weighted_score),
-                    "feature_weight": weight,
-                    "feature_profile": self._get_feature_profile(person_data, feature),
-                }
-            )
-
-        # Sort by average weighted score
-        node_scores.sort(key=lambda x: x["avg_weighted_score"], reverse=True)
-        return node_scores[:top_k]
-
-    def _get_feature_profile(self, person_data: pd.Series, feature: str) -> str:
+    def _get_feature_profile(
+        self, person_data: pd.Series, feature: str, feature_set: FeatureSet
+    ) -> str:
         """Extract the feature profile for a person"""
-        if feature == "role":
-            return str(
-                person_data.get("Professional Identity - Role Specification", "")
-            ).strip()
-        elif feature == "experience":
-            return str(
-                person_data.get("Professional Identity - Experience Level", "")
-            ).strip()
-        elif feature == "persona":
-            return str(person_data.get("All Persona Titles", "")).strip()
-        elif feature == "industry":
-            return str(
-                person_data.get("Company Identity - Industry Classification", "")
-            ).strip()
-        elif feature == "market":
-            return str(person_data.get("Company Market - Market Traction", "")).strip()
-        elif feature == "offering":
-            return str(
-                person_data.get("Company Offering - Value Proposition", "")
-            ).strip()
-        return ""
+        column = feature_set.columns.get(feature)
+        if column is None:
+            return ""
+        return str(person_data.get(column, "")).strip()
 
     def _rank_replication_candidates(
         self,
@@ -2064,7 +1884,10 @@ class SubgraphAnalyzer:
         return "\n".join(strategy_lines)
 
     def _determine_optimal_matrix_selection(
-        self, tuned_w_s: Dict[str, float], tuned_w_c: Dict[str, float]
+        self,
+        tuned_w_s: Dict[str, float],
+        tuned_w_c: Dict[str, float],
+        feature_set: FeatureSet,
     ) -> Dict[str, Dict]:
         """
         For each feature, determine whether to use similarity or complementarity matrix
@@ -2072,14 +1895,7 @@ class SubgraphAnalyzer:
         """
         matrix_selections = {}
 
-        for feature in [
-            "role",
-            "experience",
-            "persona",
-            "industry",
-            "market",
-            "offering",
-        ]:
+        for feature in feature_set.names:
             w_s = tuned_w_s.get(feature, 1.0)
             w_c = tuned_w_c.get(feature, 1.0)
 
@@ -2108,8 +1924,9 @@ class SubgraphAnalyzer:
         matrix_builder,
         feature_embeddings: Dict[str, np.ndarray],
         feature: str,
-        matrix_type: str,  # "similarity" or "complementarity"
+        matrix_type: str,
         weight_value: float,
+        feature_set: FeatureSet,
     ) -> Dict:
         """
         Find the node with the highest weighted average connections in a specific matrix.
@@ -2134,22 +1951,8 @@ class SubgraphAnalyzer:
                     # Use similarity from embeddings
                     if feature in feature_embeddings:
                         embeddings = feature_embeddings[feature]
-                        node_to_pos = {
-                            node_id: pos for pos, node_id in enumerate(df.index)
-                        }
-                        emb_i = (
-                            embeddings[node_to_pos[node_idx]]
-                            if node_idx in node_to_pos
-                            else None
-                        )
-                        emb_j = (
-                            embeddings[node_to_pos[other_idx]]
-                            if other_idx in node_to_pos
-                            else None
-                        )
-
-                        if emb_i is None or emb_j is None:
-                            continue
+                        emb_i = embeddings[node_idx]
+                        emb_j = embeddings[other_idx]
 
                         norm_i = np.linalg.norm(emb_i)
                         norm_j = np.linalg.norm(emb_j)
@@ -2166,14 +1969,14 @@ class SubgraphAnalyzer:
             avg_weighted_score = total_weighted_score / max(connection_count, 1)
 
             # Get person details and feature value
-            person_data = df.loc[node_idx]
-            feature_value = self._get_feature_profile(person_data, feature)
+            person_data = df.iloc[node_idx]
+            feature_value = self._get_feature_profile(person_data, feature, feature_set)
 
             node_scores.append(
                 {
                     "node_idx": int(node_idx),
-                    "name": person_data.get("Person Name", "Unknown"),
-                    "company": person_data.get("Person Company", ""),
+                    "name": person_data.get(feature_set.name_column, "Unknown"),
+                    "company": person_data.get(feature_set.company_column, ""),
                     "feature": feature,
                     "matrix_type": matrix_type,
                     "avg_weighted_score": float(avg_weighted_score),

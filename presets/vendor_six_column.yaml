@@ -1,0 +1,23 @@
+# The enriched six-column layout the engine was first written against.
+# Pass it with --map, or write your own for a different export.
+name_column: Person Name
+company_column: Person Company
+features:
+  - name: role
+    column: Professional Identity - Role Specification
+    separator: "|"
+  - name: experience
+    column: Professional Identity - Experience Level
+    separator: "|"
+  - name: industry
+    column: Company Identity - Industry Classification
+    separator: "|"
+  - name: market
+    column: Company Market - Market Traction
+    separator: "|"
+  - name: offering
+    column: Company Offering - Value Proposition
+    separator: "|"
+  - name: persona
+    column: All Persona Titles
+    separator: ";"

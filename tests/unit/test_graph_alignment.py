@@ -1,12 +1,22 @@
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import numpy as np
 import pandas as pd
 import pytest
 
+from services.features.feature_set import Feature, FeatureSet
 from services.graph.graph_builder import GraphBuilder
 from services.preprocessing.csv_loader import CSVLoader
 from services.preprocessing.embedding_builder import EmbeddingBuilder
+
+MAPPING = "presets/vendor_six_column.yaml"
+
+MARKET = Feature(
+    name="market", column="Company Market - Market Traction", separator="|"
+)
+FEATURE_SET = FeatureSet(
+    features=(MARKET,), name_column="Person Name", company_column="Person Company"
+)
 
 COLUMNS = [
     "Person Name",
@@ -46,45 +56,38 @@ def roster_with_a_gap(tmp_path):
 
 def build_graph_builder(csv_path, people_count):
     """A GraphBuilder whose embedding, scoring and analysis collaborators are stubbed."""
+    flat = np.full((people_count, people_count), 0.5)
+
     similarity_calc = MagicMock()
-    similarity_calc.get_similarity_matrices.return_value = {
-        "role": np.full((people_count, people_count), 0.5)
-    }
+    similarity_calc.raw_matrices.return_value = {"role": flat}
     similarity_calc.get_all_similarities.return_value = {"role": 0.5}
 
     matrix_builder = MagicMock()
-    matrix_builder.build_all_complementarity_matrices = AsyncMock(return_value={})
-    matrix_builder.precompute_person_tags = AsyncMock(return_value=None)
-    matrix_builder.get_complementarity_matrices.return_value = {
-        "role": np.full((people_count, people_count), 0.5)
-    }
+    matrix_builder.build = AsyncMock(return_value=None)
+    matrix_builder.index_people = MagicMock(return_value=None)
+    matrix_builder.raw_matrices.return_value = {"role": flat}
     matrix_builder.get_all_complementarities.return_value = {"role": 0.5}
-
-    insight_analyzer = MagicMock()
-    insight_analyzer.analyze_feature_matrices.return_value = {}
-    insight_analyzer.generate_context_summary.return_value = ""
 
     return GraphBuilder(
         csv_path=str(csv_path),
-        csv_loader=CSVLoader(str(csv_path)),
+        csv_loader=CSVLoader(str(csv_path), MAPPING),
         embedding_builder=MagicMock(),
         similarity_calc=similarity_calc,
         matrix_builder=matrix_builder,
         subgraph_analyzer=MagicMock(),
         cache=MagicMock(),
-        insight_analyzer=insight_analyzer,
     )
 
 
 class TestLoaderIndex:
     def test_filtering_leaves_a_contiguous_index(self, roster_with_a_gap):
-        df = CSVLoader(str(roster_with_a_gap)).load_data()
+        df = CSVLoader(str(roster_with_a_gap), MAPPING).load_data()
 
         assert len(df) == 4
         assert list(df.index) == [0, 1, 2, 3]
 
     def test_filtering_keeps_the_surviving_people(self, roster_with_a_gap):
-        df = CSVLoader(str(roster_with_a_gap)).load_data()
+        df = CSVLoader(str(roster_with_a_gap), MAPPING).load_data()
 
         assert list(df["Person Name"]) == ["Ada", "Grace", "Dorothy", "Mary"]
 
@@ -94,11 +97,7 @@ class TestGraphAlignment:
         builder = build_graph_builder(roster_with_a_gap, people_count=4)
         builder.load_data()
 
-        with patch(
-            "services.graph.graph_builder.tune_parameters",
-            return_value=({"role": 1.0}, {"role": 1.0}),
-        ):
-            graph = await builder.create_graph_optimized({})
+        graph = await builder.create_graph_optimized({"role": np.zeros((4, 8))})
 
         assert set(graph.nodes) == set(builder.df.index)
 
@@ -106,11 +105,7 @@ class TestGraphAlignment:
         builder = build_graph_builder(roster_with_a_gap, people_count=4)
         builder.load_data()
 
-        with patch(
-            "services.graph.graph_builder.tune_parameters",
-            return_value=({"role": 1.0}, {"role": 1.0}),
-        ):
-            graph = await builder.create_graph_optimized({})
+        graph = await builder.create_graph_optimized({"role": np.zeros((4, 8))})
 
         orphans = [node for node in graph.nodes if graph.degree(node) == 0]
         assert orphans == []
@@ -121,11 +116,7 @@ class TestGraphAlignment:
         builder = build_graph_builder(roster_with_a_gap, people_count=4)
         builder.load_data()
 
-        with patch(
-            "services.graph.graph_builder.tune_parameters",
-            return_value=({"role": 1.0}, {"role": 1.0}),
-        ):
-            graph = await builder.create_graph_optimized({})
+        graph = await builder.create_graph_optimized({"role": np.zeros((4, 8))})
 
         for position, name in enumerate(builder.df["Person Name"]):
             assert graph.nodes[position]["name"] == name
@@ -154,12 +145,10 @@ class TestEmbeddingAlignment:
     async def test_matrix_row_belongs_to_the_person_at_that_position(
         self, roster_with_a_gap
     ):
-        df = CSVLoader(str(roster_with_a_gap)).load_data()
+        df = CSVLoader(str(roster_with_a_gap), MAPPING).load_data()
         builder = EmbeddingBuilder(embedding_service=StubEmbeddingService())
 
-        matrices = await builder.embed_features(
-            df, {"market": "Company Market - Market Traction"}
-        )
+        matrices = await builder.embed_features(df, FEATURE_SET)
         matrix = matrices["market"]
 
         assert matrix.shape == (len(df), StubEmbeddingService.embedding_dim)
@@ -172,11 +161,9 @@ class TestEmbeddingAlignment:
             assert np.allclose(matrix[position], expected)
 
     async def test_a_gapped_frame_is_rejected(self, roster_with_a_gap):
-        df = CSVLoader(str(roster_with_a_gap)).load_data()
+        df = CSVLoader(str(roster_with_a_gap), MAPPING).load_data()
         gapped = df.drop(index=1)
         builder = EmbeddingBuilder(embedding_service=StubEmbeddingService())
 
         with pytest.raises(AssertionError):
-            await builder.embed_features(
-                gapped, {"market": "Company Market - Market Traction"}
-            )
+            await builder.embed_features(gapped, FEATURE_SET)

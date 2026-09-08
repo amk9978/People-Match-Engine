@@ -11,18 +11,24 @@ import numpy as np
 import pandas as pd
 
 import settings
-from services.analysis.dataset_insights import DatasetInsightsAnalyzer
 from services.analysis.matrix_builder import MatrixBuilder
 from services.analysis.subgraph_analyzer import SubgraphAnalyzer
-from services.graph.scoring.generalized_mean import combine_edge_weight, tune_parameters
+from services.cache.cache import Cache
+from services.cache.factory import get_cache_backend
+from services.graph.scoring.generalized_mean import combine_edge_weight
 from services.graph.scoring.similarity_calculator import SimilarityCalculator
 from services.preprocessing.csv_loader import CSVLoader
 from services.preprocessing.embedding_builder import EmbeddingBuilder
-from services.cache.cache import Cache
-from services.cache.factory import get_cache_backend
-from shared.shared import DEFAULT_FEATURE_WEIGHTS, OPTIMIZED_FEATURE_WEIGHTS
+from services.scoring.calibration import calibrate_all
+from services.scoring.intent import create_intent_resolver, sample_values
+from services.scoring.profile import ScoringProfile
+from services.scoring.weight_resolver import WeightResolver
 
 logger = logging.getLogger(__name__)
+
+
+def _rounded(weights: Dict[str, float]) -> Dict[str, float]:
+    return {name: round(value, 3) for name, value in weights.items()}
 
 
 class GraphBuilder:
@@ -32,35 +38,44 @@ class GraphBuilder:
         self,
         csv_path: str,
         min_density: float = None,
+        mapping_path: str = None,
         csv_loader: CSVLoader = None,
         embedding_builder: EmbeddingBuilder = None,
         similarity_calc: SimilarityCalculator = None,
         matrix_builder: MatrixBuilder = None,
         subgraph_analyzer: SubgraphAnalyzer = None,
         cache: Cache = None,
-        insight_analyzer: DatasetInsightsAnalyzer = None,
+        intent_resolver=None,
+        weight_resolver: WeightResolver = None,
+        scoring_profile: ScoringProfile = None,
     ):
         self.csv_path = csv_path
         self.min_density = min_density or settings.MIN_DENSITY
         self.graph = None
         self.df = None
-        self.tuned_w_s = DEFAULT_FEATURE_WEIGHTS.copy()
-        self.tuned_w_c = OPTIMIZED_FEATURE_WEIGHTS.copy()
+        self.feature_set = None
+        self.intent = None
+        self.tuned_w_s = {}
+        self.tuned_w_c = {}
 
-        self.csv_loader = csv_loader or CSVLoader(csv_path)
+        self.csv_loader = csv_loader or CSVLoader(
+            csv_path, mapping_path or settings.FEATURE_MAPPING_PATH
+        )
         self.embedding_builder = embedding_builder or EmbeddingBuilder()
         self.similarity_calc = similarity_calc or SimilarityCalculator()
         self.matrix_builder = matrix_builder or MatrixBuilder()
         self.subgraph_analyzer = subgraph_analyzer or SubgraphAnalyzer()
         self.cache = cache or Cache(get_cache_backend(), "graph_cache")
-        self.insights_analyzer = insight_analyzer or DatasetInsightsAnalyzer()
+        self.intent_resolver = intent_resolver or create_intent_resolver()
+        self.weight_resolver = weight_resolver or WeightResolver()
+        self.scoring_profile = scoring_profile or ScoringProfile()
 
         self.GRAPH_PREFIX = "networkx_graph"
         self.EMBEDDINGS_PREFIX = "feature_embeddings"
 
     def load_data(self) -> pd.DataFrame:
-        """Load and preprocess the dataset"""
         self.df = self.csv_loader.load_data()
+        self.feature_set = self.csv_loader.feature_set
         return self.df
 
     def _get_graph_cache_key(self, job_id: str) -> str:
@@ -202,7 +217,22 @@ class GraphBuilder:
         feature_embeddings: Dict[str, np.ndarray],
         user_prompt: str = None,
     ) -> nx.Graph:
+        """Score every pair and build the complete weighted graph.
+
+        Seven steps run in order. The features come from the dataset, each one
+        gets a similarity and a complementarity matrix, informativeness is
+        measured from the raw spread of those matrices, the prompt becomes a
+        per-feature importance and direction, both matrices are calibrated onto a
+        common percentile scale, the three factors compose into the weights, and
+        the combiner turns each pair into one edge.
+
+        Measurement comes before calibration and the two must not be swapped.
+        Calibration makes every feature uniform by construction, so measuring
+        afterwards returns the same number for every feature and the weights
+        silently flatten.
+        """
         assert self.df is not None, "load_data must run before the graph is built"
+        assert self.feature_set is not None, "load_data must resolve the feature set"
         assert self.df.index.equals(pd.RangeIndex(len(self.df))), (
             "people are addressed by position throughout the pipeline, "
             "so the loaded frame must be indexed 0..n-1"
@@ -213,57 +243,58 @@ class GraphBuilder:
         for position in range(num_people):
             row = self.df.iloc[position]
             self.graph.add_node(
-                position, name=row["Person Name"], company=row["Person Company"]
+                position,
+                name=row[self.feature_set.name_column],
+                company=self._company_of(row),
             )
-        matrices = await self.matrix_builder.build_all_complementarity_matrices(
-            self.csv_path
-        )
-        self.matrix_builder.load_matrices_into_memory(matrices)
-        self.similarity_calc.precompute_similarity_matrices(feature_embeddings)
-        await self.matrix_builder.precompute_person_tags(
-            self.df, self.embedding_builder
-        )
 
-        similarity_matrices = self.similarity_calc.get_similarity_matrices()
-        complementarity_matrices = self.matrix_builder.get_complementarity_matrices()
+        self.similarity_calc.precompute(feature_embeddings)
+        await self.matrix_builder.build(self.df, self.feature_set)
+        self.matrix_builder.index_people(self.df, self.feature_set)
 
-        feature_insights = self.insights_analyzer.analyze_feature_matrices(
-            similarity_matrices, complementarity_matrices
-        )
-        dataset_context = self.insights_analyzer.generate_context_summary(
-            feature_insights
+        raw_similarity = self.similarity_calc.raw_matrices()
+        raw_complementarity = self.matrix_builder.raw_matrices()
+
+        self.intent = self.intent_resolver.resolve(
+            user_prompt, self.feature_set, sample_values(self.df, self.feature_set)
         )
 
-        w_s, w_c = tune_parameters(prompt=user_prompt, insights=dataset_context)
+        self.similarity_calc.apply_calibrated(
+            calibrate_all(raw_similarity, preserve_diagonal=True)
+        )
+        self.matrix_builder.apply_calibrated(
+            calibrate_all(raw_complementarity, preserve_diagonal=False)
+        )
 
-        self.tuned_w_s = w_s
-        self.tuned_w_c = w_c
-
-        edges_added = 0
+        self.tuned_w_s, self.tuned_w_c = self.weight_resolver.resolve(
+            raw_similarity, raw_complementarity, self.intent
+        )
+        logger.info(
+            f"Similarity weights {_rounded(self.tuned_w_s)}, "
+            f"complementarity weights {_rounded(self.tuned_w_c)}"
+        )
 
         for i in range(num_people):
             for j in range(i + 1, num_people):
-                similarities = self.similarity_calc.get_all_similarities(i, j)
-                complementarities = self.matrix_builder.get_all_complementarities(i, j)
                 score = combine_edge_weight(
-                    similarities,
-                    complementarities,
-                    w_s=w_s,
-                    w_c=w_c,
-                    p_s=0.0,
-                    p_c=0.5,
-                    rho=0.5,
-                    lam=0.5,
-                    eta=0.2,
-                    gamma_e=0.85,
+                    self.similarity_calc.get_all_similarities(i, j),
+                    self.matrix_builder.get_all_complementarities(i, j),
+                    w_s=self.tuned_w_s,
+                    w_c=self.tuned_w_c,
+                    profile=self.scoring_profile,
                 )
                 self.graph.add_edge(i, j, weight=score)
-                edges_added += 1
 
         logger.info(
-            f"✅ Created optimized graph with {self.graph.number_of_nodes()} nodes and {edges_added} edges"
+            f"Built graph with {self.graph.number_of_nodes()} nodes and "
+            f"{self.graph.number_of_edges()} edges"
         )
         return self.graph
+
+    def _company_of(self, row: pd.Series) -> str:
+        if self.feature_set.company_column:
+            return row[self.feature_set.company_column]
+        return ""
 
     def densest_subgraph_peeling(self, find_all: bool = False) -> List[Set[int]]:
         """Find dense subgraphs using iterative peeling algorithm"""
@@ -395,9 +426,7 @@ class GraphBuilder:
         return result
 
     async def embed_features(self) -> Dict[str, np.ndarray]:
-        """Delegate to embedding builder"""
-        feature_columns = self.csv_loader.get_feature_columns()
-        return await self.embedding_builder.embed_features(self.df, feature_columns)
+        return await self.embedding_builder.embed_features(self.df, self.feature_set)
 
     def get_subgraph_info(
         self, nodes: Set[int], feature_embeddings: Dict[str, np.ndarray]
@@ -411,19 +440,8 @@ class GraphBuilder:
             self.matrix_builder,
             self.tuned_w_s,
             self.tuned_w_c,
+            self.feature_set,
         )
-
-    def analyze_subgraph_centroids(
-        self, nodes: Set[int], feature_embeddings: Dict[str, np.ndarray]
-    ) -> Dict:
-        """Delegate to subgraph analyzer"""
-        return self.subgraph_analyzer.analyze_subgraph_centroids(
-            nodes, feature_embeddings
-        )
-
-    def analyze_subgroups(self, nodes: Set[int]) -> Dict:
-        """Delegate to subgraph analyzer"""
-        return self.subgraph_analyzer.analyze_subgroups(nodes, self.graph, self.df)
 
     def calculate_subgraph_density(self, nodes: Set[int]) -> float:
         """Delegate to subgraph analyzer"""

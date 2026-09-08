@@ -6,9 +6,9 @@ import numpy as np
 import pandas as pd
 
 from services.cache.app_cache_service import app_cache_service
+from services.features.feature_set import Feature, FeatureSet
 from services.preprocessing.embedding_interface import EmbeddingServiceProtocol
 from services.preprocessing.fast_embedding_service import FastEmbeddingService
-from services.preprocessing.tag_extractor import tag_extractor
 
 logger = logging.getLogger(__name__)
 
@@ -36,45 +36,46 @@ class EmbeddingBuilder:
         return await self.embedding_service.get_embedding(tag)
 
     async def embed_features(
-        self, df: pd.DataFrame, feature_columns: Dict[str, str]
+        self, df: pd.DataFrame, feature_set: FeatureSet
     ) -> Dict[str, np.ndarray]:
         assert df.index.equals(
             pd.RangeIndex(len(df))
         ), "people are addressed by position; the frame must be indexed 0..n-1"
 
         feature_embeddings = {}
-        for feature_name, column_name in feature_columns.items():
-            feature_embeddings[feature_name] = await self._embed_one_feature(
-                df, feature_name, column_name
+        for feature in feature_set:
+            feature_embeddings[feature.name] = await self._embed_one_feature(
+                df, feature
             )
 
         logger.info(f"Cache after embedding: {self.cache.get_cache_stats()}")
         return feature_embeddings
 
     async def _embed_one_feature(
-        self, df: pd.DataFrame, feature_name: str, column_name: str
+        self, df: pd.DataFrame, feature: Feature
     ) -> np.ndarray:
-        cache_status = self.cache.get_dataset_embedding_cache_status(df, feature_name)
+        feature_name = feature.name
+        cache_status = self.cache.get_dataset_embedding_cache_status(
+            df, feature_name, feature.column
+        )
         person_embeddings = dict(cache_status["cached_embeddings"])
         uncached_positions = cache_status["uncached_indices"]
 
         if uncached_positions:
-            values = self._collect_values(
-                df, uncached_positions, column_name, feature_name
-            )
+            values = self._collect_values(df, uncached_positions, feature)
             value_embeddings = await self._embed_values(values)
 
             computed = {
                 position: self._person_vector(
-                    tag_extractor.extract_tags(
-                        df.iloc[position][column_name], feature_name
-                    ),
+                    feature.split(str(df.iloc[position][feature.column])),
                     value_embeddings,
                 )
                 for position in uncached_positions
             }
             person_embeddings.update(computed)
-            self.cache.cache_dataset_embeddings(df, feature_name, computed)
+            self.cache.cache_dataset_embeddings(
+                df, feature_name, feature.column, computed
+            )
 
         matrix = self._assemble(df, person_embeddings, feature_name)
         logger.info(
@@ -83,17 +84,11 @@ class EmbeddingBuilder:
         return matrix
 
     def _collect_values(
-        self,
-        df: pd.DataFrame,
-        positions: List[int],
-        column_name: str,
-        feature_name: str,
+        self, df: pd.DataFrame, positions: List[int], feature: Feature
     ) -> Set[str]:
         values = set()
         for position in positions:
-            values.update(
-                tag_extractor.extract_tags(df.iloc[position][column_name], feature_name)
-            )
+            values.update(feature.split(str(df.iloc[position][feature.column])))
         return values
 
     async def _embed_values(self, values: Set[str]) -> Dict[str, List[float]]:

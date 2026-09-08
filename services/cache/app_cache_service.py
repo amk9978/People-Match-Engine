@@ -99,7 +99,7 @@ class AppCacheService:
         return self.store.set(cache_key, json.dumps(embedding))
 
     def get_dataset_embedding_cache_status(
-        self, df: pd.DataFrame, feature_type: str
+        self, df: pd.DataFrame, feature_type: str, column: str
     ) -> Dict[str, Any]:
         """Split the dataset into people whose embedding is cached and those who need one.
 
@@ -109,7 +109,7 @@ class AppCacheService:
         uncached_indices = []
 
         for position in range(len(df)):
-            row_data = self._extract_row_data(df.iloc[position], feature_type)
+            row_data = self._extract_row_data(df.iloc[position], feature_type, column)
             embedding = self.get_person_embedding(row_data, feature_type)
             if embedding:
                 cached_embeddings[position] = embedding
@@ -127,47 +127,32 @@ class AppCacheService:
         }
 
     def cache_dataset_embeddings(
-        self, df: pd.DataFrame, feature_type: str, embeddings: Dict[int, List[float]]
+        self,
+        df: pd.DataFrame,
+        feature_type: str,
+        column: str,
+        embeddings: Dict[int, List[float]],
     ) -> None:
         cached_count = 0
 
         for position, embedding in embeddings.items():
             if position >= len(df):
                 continue
-            row_data = self._extract_row_data(df.iloc[position], feature_type)
+            row_data = self._extract_row_data(df.iloc[position], feature_type, column)
             if self.set_person_embedding(row_data, feature_type, embedding):
                 cached_count += 1
 
         logger.info(f"Cached {cached_count} new {feature_type} embeddings")
 
-    def _extract_row_data(self, row: pd.Series, feature_type: str) -> Dict[str, Any]:
-        """Extract the row content a feature's embedding depends on."""
-        if feature_type == "role":
-            return {
-                "role": str(row.get("Professional Identity - Role Specification", ""))
-            }
-        elif feature_type == "experience":
-            return {
-                "experience": str(
-                    row.get("Professional Identity - Experience Level", "")
-                )
-            }
-        elif feature_type == "persona":
-            return {"personas": str(row.get("All Persona Titles", ""))}
-        elif feature_type == "industry":
-            return {
-                "industry": str(
-                    row.get("Company Identity - Industry Classification", "")
-                )
-            }
-        elif feature_type == "market":
-            return {"market": str(row.get("Company Market - Market Traction", ""))}
-        elif feature_type == "offering":
-            return {
-                "offering": str(row.get("Company Offering - Value Proposition", ""))
-            }
-        else:
-            return {col: str(row.get(col, "")) for col in row.index}
+    def _extract_row_data(
+        self, row: pd.Series, feature_type: str, column: str
+    ) -> Dict[str, Any]:
+        """The row content a feature's embedding depends on.
+
+        The column travels with the feature name so a cached vector belongs to
+        one column of one dataset, not to a feature name that another dataset
+        might reuse for different text."""
+        return {"column": column, "value": str(row.get(column, ""))}
 
     def _pair_key(self, category: str, source: str, target: str) -> str:
         """Key one ordered pair of profiles for one feature.

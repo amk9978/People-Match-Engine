@@ -8,8 +8,8 @@ from typing import Dict, List, Optional, Tuple
 from openai import AsyncOpenAI
 
 import settings
-from services.analysis.scoring_report import ScoringReport
 from services.cache.app_cache_service import app_cache_service
+from services.scoring.report import ScoringReport
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +30,7 @@ class ComplementarityScores:
     report: ScoringReport
 
 
-class BusinessAnalyzer:
+class LLMComplementarityScorer:
     """Scores how complementary two profiles are, one feature at a time.
 
     The model receives a numbered comparison list once per batch and returns a

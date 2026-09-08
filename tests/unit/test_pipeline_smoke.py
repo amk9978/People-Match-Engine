@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 import pandas as pd
 import pytest
 
-from services.analysis.business_analyzer import BusinessAnalyzer
+from services.scoring.llm_scorer import LLMComplementarityScorer
 from services.analysis.matrix_builder import MatrixBuilder
 from services.cache.app_cache_service import AppCacheService
 from services.cache.memory import InMemoryBackend
@@ -12,7 +12,7 @@ from services.graph.graph_builder import GraphBuilder
 from services.graph.scoring.similarity_calculator import SimilarityCalculator
 from services.preprocessing.csv_loader import CSVLoader
 from services.preprocessing.embedding_builder import EmbeddingBuilder
-from tests.unit.test_graph_alignment import StubEmbeddingService
+from tests.unit.test_graph_alignment import MAPPING, StubEmbeddingService
 
 SAMPLE_CSV = "docs/sample.csv"
 ROSTER_SIZE = 12
@@ -77,12 +77,12 @@ def builder(roster):
 
     cache = AppCacheService(backend=InMemoryBackend())
     matrix_builder = MatrixBuilder(
-        business_analyzer=BusinessAnalyzer(openai_client=client, cache=cache)
+        scorer=LLMComplementarityScorer(openai_client=client, cache=cache)
     )
 
     graph_builder = GraphBuilder(
         csv_path=str(roster),
-        csv_loader=CSVLoader(str(roster)),
+        csv_loader=CSVLoader(str(roster), MAPPING),
         embedding_builder=EmbeddingBuilder(
             cache=cache, embedding_service=StubEmbeddingService()
         ),
@@ -96,13 +96,7 @@ def builder(roster):
 
 
 class TestPipeline:
-    async def test_a_run_scores_every_pair_without_falling_back(
-        self, builder, monkeypatch
-    ):
-        monkeypatch.setattr(
-            "services.graph.graph_builder.tune_parameters",
-            lambda prompt, insights: ({}, {}),
-        )
+    async def test_a_run_scores_every_pair_without_falling_back(self, builder):
         builder.load_data()
         embeddings = await builder.embed_features()
 
@@ -113,13 +107,7 @@ class TestPipeline:
         assert report.fallback_rate == 0.0
         assert report.model_calls == builder.model.calls
 
-    async def test_the_graph_covers_every_person_exactly_once(
-        self, builder, monkeypatch
-    ):
-        monkeypatch.setattr(
-            "services.graph.graph_builder.tune_parameters",
-            lambda prompt, insights: ({}, {}),
-        )
+    async def test_the_graph_covers_every_person_exactly_once(self, builder):
         builder.load_data()
         embeddings = await builder.embed_features()
 
@@ -128,11 +116,7 @@ class TestPipeline:
         assert set(graph.nodes) == set(range(len(builder.df)))
         assert graph.number_of_edges() == len(builder.df) * (len(builder.df) - 1) // 2
 
-    async def test_a_second_run_reuses_every_scored_pair(self, builder, monkeypatch):
-        monkeypatch.setattr(
-            "services.graph.graph_builder.tune_parameters",
-            lambda prompt, insights: ({}, {}),
-        )
+    async def test_a_second_run_reuses_every_scored_pair(self, builder):
         builder.load_data()
         embeddings = await builder.embed_features()
         await builder.create_graph_optimized(embeddings)
@@ -142,3 +126,78 @@ class TestPipeline:
 
         assert builder.model.calls == calls_after_first_run
         assert builder.matrix_builder.scoring_report.scored_pairs == 0
+
+
+FOREIGN_ROWS = [
+    ("Ada", "Analytical", "engine design | mathematics", "funding", "founder"),
+    ("Grace", "Univac", "compilers | tooling", "hires", "principal"),
+    ("Katherine", "NACA", "orbital mechanics | analysis", "collaborators", "principal"),
+    ("Dorothy", "IBM", "systems research | fortran", "advisors", "director"),
+    ("Mary", "Bell", "switching theory | logic", "funding", "staff"),
+    ("Radia", "DEC", "routing | protocols", "hires", "principal"),
+]
+
+
+@pytest.fixture
+def foreign_roster(tmp_path):
+    """A roster whose column names share nothing with the vendor layout."""
+    df = pd.DataFrame(
+        FOREIGN_ROWS,
+        columns=["Attendee", "Employer", "What they do", "Looking for", "Seniority"],
+    )
+    path = tmp_path / "foreign.csv"
+    df.to_csv(path, index=False)
+    return path
+
+
+@pytest.fixture
+def foreign_builder(foreign_roster):
+    model = ScriptedModel()
+    client = MagicMock()
+    client.chat.completions = model
+
+    cache = AppCacheService(backend=InMemoryBackend())
+    graph_builder = GraphBuilder(
+        csv_path=str(foreign_roster),
+        min_density=0.0,
+        embedding_builder=EmbeddingBuilder(
+            cache=cache, embedding_service=StubEmbeddingService()
+        ),
+        matrix_builder=MatrixBuilder(
+            scorer=LLMComplementarityScorer(openai_client=client, cache=cache)
+        ),
+        cache=MagicMock(),
+    )
+    graph_builder.model = model
+    return graph_builder
+
+
+class TestForeignSchema:
+    async def test_a_roster_with_unknown_columns_returns_a_ranked_group(
+        self, foreign_builder
+    ):
+        foreign_builder.load_data()
+        embeddings = await foreign_builder.embed_features()
+        await foreign_builder.create_graph_optimized(embeddings)
+
+        nodes, density = foreign_builder.find_largest_dense_subgraph()
+
+        assert len(nodes) >= 3
+        assert density > 0.0
+
+    async def test_the_features_come_from_the_dataset(self, foreign_builder):
+        foreign_builder.load_data()
+
+        assert "What they do" in foreign_builder.feature_set.columns.values()
+        assert foreign_builder.feature_set.name_column == "Attendee"
+
+    async def test_weights_are_produced_without_a_prompt_or_a_key(
+        self, foreign_builder
+    ):
+        foreign_builder.load_data()
+        embeddings = await foreign_builder.embed_features()
+        await foreign_builder.create_graph_optimized(embeddings)
+
+        assert set(foreign_builder.tuned_w_s) == set(foreign_builder.feature_set.names)
+        assert sum(foreign_builder.tuned_w_s.values()) == pytest.approx(1.0)
+        assert sum(foreign_builder.tuned_w_c.values()) == pytest.approx(1.0)
