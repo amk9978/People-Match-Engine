@@ -332,7 +332,7 @@ class MatrixBuilder:
         logger.info("⚡ Precomputing person profile vectors...")
 
         for idx, row in df.iterrows():
-            business = await embedding_builder.extract_business_tags_for_person(row)
+            business = embedding_builder.extract_business_tags_for_person(row)
 
             # Store complete profile vectors as they appear in the dataset
             self._person_tags_cache[idx] = {

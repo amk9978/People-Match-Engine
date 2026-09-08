@@ -9,9 +9,6 @@ import pandas as pd
 
 from services.preprocessing.embedding_interface import EmbeddingServiceProtocol
 from services.preprocessing.fast_embedding_service import FastEmbeddingService
-from services.preprocessing.semantic_person_deduplicator import (
-    SemanticPersonDeduplicator,
-)
 from services.preprocessing.tag_extractor import tag_extractor
 from services.redis.app_cache_service import app_cache_service
 
@@ -29,46 +26,28 @@ class EmbeddingBuilder:
     def __init__(
         self,
         cache=None,
-        person_deduplicator: SemanticPersonDeduplicator = None,
         embedding_service: EmbeddingServiceProtocol = None,
     ):
         self.cache = cache or app_cache_service
-        self.person_deduplicator = person_deduplicator or SemanticPersonDeduplicator()
         self.embedding_service = embedding_service or FastEmbeddingService()
-
-    async def extract_and_deduplicate_tags(self, text: str, category: str) -> List[str]:
-        """Extract tags and apply semantic deduplication for any feature category"""
-        raw_tags = tag_extractor.extract_tags(text, category)
-        return raw_tags
-
-        return await self.person_deduplicator.apply_semantic_deduplication(
-            raw_tags, category
-        )
 
     async def get_cached_embedding(self, tag: str) -> List[float]:
         """Get embedding using shared embedding service"""
         return await self.embedding_service.get_embedding(tag)
 
-    async def extract_business_tags_for_person(self, row) -> Dict[str, List[str]]:
-        """Extract deduplicated business tags for a person for causal analysis"""
-        business_tags = {}
-
-        industry_text = row["Company Identity - Industry Classification"]
-        business_tags["industry"] = await self.extract_and_deduplicate_tags(
-            industry_text, "industry"
-        )
-
-        market_text = row["Company Market - Market Traction"]
-        business_tags["market"] = await self.extract_and_deduplicate_tags(
-            market_text, "market"
-        )
-
-        offering_text = row["Company Offering - Value Proposition"]
-        business_tags["offering"] = await self.extract_and_deduplicate_tags(
-            offering_text, "offering"
-        )
-
-        return business_tags
+    def extract_business_tags_for_person(self, row) -> Dict[str, List[str]]:
+        """Extract business tags for a person for causal analysis"""
+        return {
+            "industry": tag_extractor.extract_tags(
+                row["Company Identity - Industry Classification"], "industry"
+            ),
+            "market": tag_extractor.extract_tags(
+                row["Company Market - Market Traction"], "market"
+            ),
+            "offering": tag_extractor.extract_tags(
+                row["Company Offering - Value Proposition"], "offering"
+            ),
+        }
 
     async def embed_features(
         self, df: pd.DataFrame, feature_columns: Dict[str, str]
@@ -121,7 +100,7 @@ class EmbeddingBuilder:
                     all_unique_values = set()
                     for idx in valid_uncached_indices:
                         row = df.iloc[idx]
-                        values = await self.extract_and_deduplicate_tags(
+                        values = tag_extractor.extract_tags(
                             row[column_name], feature_name
                         )
                         all_unique_values.update(values)
@@ -172,7 +151,7 @@ class EmbeddingBuilder:
                     new_person_embeddings = {}
                     for idx in valid_uncached_indices:
                         row = df.iloc[idx]
-                        values = await self.extract_and_deduplicate_tags(
+                        values = tag_extractor.extract_tags(
                             row[column_name], feature_name
                         )
 
@@ -239,31 +218,3 @@ class EmbeddingBuilder:
         logger.info(f"Redis cache status: {cache_info}")
 
         return feature_embeddings
-
-    async def preprocess_tags(
-        self,
-        csv_path: str,
-        similarity_threshold: float = 0.7,
-        fuzzy_threshold: float = 0.90,
-        force_rebuild: bool = False,
-    ) -> Dict[str, any]:
-        """Run tag deduplication preprocessing"""
-        logger.info("Running tag deduplication preprocessing...")
-
-        existing_stats = self.person_deduplicator.get_stats()
-        if not force_rebuild and "error" not in existing_stats:
-            logger.info(f"✓ Found existing person-level deduplication results")
-            return existing_stats
-
-        logger.info("Building semantic person-level tag deduplication mappings...")
-        dedup_results = await self.person_deduplicator.process_dataset_semantic(
-            csv_path, similarity_threshold
-        )
-
-        logger.info(f"✓ Person-level tag deduplication complete")
-
-        return dedup_results
-
-    def extract_tags(self, persona_titles: str) -> List[str]:
-        """Extract and clean tags from the persona titles column"""
-        return tag_extractor.extract_persona_tags(persona_titles)

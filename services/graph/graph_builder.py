@@ -371,9 +371,7 @@ class GraphBuilder:
 
     async def run_complete_analysis(self, job_id: str, user_prompt: str = None) -> Dict:
         """Run complete analysis pipeline"""
-        logger.info(
-            "Starting multi-feature graph matching analysis with tag deduplication..."
-        )
+        logger.info("Starting multi-feature graph matching analysis")
 
         self.load_data()
 
@@ -385,24 +383,7 @@ class GraphBuilder:
 
         result = self.get_subgraph_info(largest_dense_nodes, feature_embeddings)
 
-        result["deduplication_stats"] = 0
-
         return result
-
-    async def preprocess_tags(
-        self,
-        similarity_threshold: float = 0.7,
-        fuzzy_threshold: float = 0.90,
-        force_rebuild: bool = False,
-    ) -> Dict[str, any]:
-        """Delegate to embedding builder"""
-        return await self.embedding_builder.preprocess_tags(
-            self.csv_path, similarity_threshold, fuzzy_threshold, force_rebuild
-        )
-
-    def extract_tags(self, persona_titles: str) -> List[str]:
-        """Delegate to embedding builder"""
-        return self.embedding_builder.extract_tags(persona_titles)
 
     async def embed_features(self) -> Dict[str, np.ndarray]:
         """Delegate to embedding builder"""

@@ -21,10 +21,5 @@ class TagExtractor:
 
         return [tag for tag in raw_tags if tag]
 
-    @staticmethod
-    def extract_persona_tags(persona_titles: str) -> List[str]:
-        """Extract persona tags (semicolon separated) - backwards compatibility"""
-        return TagExtractor.extract_tags(persona_titles, "personas")
-
 
 tag_extractor = TagExtractor()
