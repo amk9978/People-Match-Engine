@@ -40,11 +40,11 @@ dependencies = [
 [project.optional-dependencies]
 redis = ["redis>=6.4,<7.0"]
 dev = [
-    "black>=25.1",
-    "isort>=6.0",
-    "httpx>=0.28",
-    "pytest>=8.4",
-    "pytest-asyncio>=1.0",
+    "black==26.5.1",
+    "isort==9.0.1",
+    "httpx>=0.28,<1.0",
+    "pytest>=8.4,<9.0",
+    "pytest-asyncio>=1.0,<2.0",
 ]
 
 [project.urls]

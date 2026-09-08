@@ -114,8 +114,7 @@ class LLMIntentResolver:
             trimmed = [value[:SAMPLE_VALUE_CHARS] for value in examples]
             descriptions.append(f'- {name}: e.g. {"; ".join(trimmed) or "no samples"}')
 
-        return dedent(
-            f"""\
+        return dedent(f"""\
             People at a professional event are matched on the features below.
             Each feature is one column of their profile.
 
@@ -137,8 +136,7 @@ class LLMIntentResolver:
             {{"importance": {{"<feature>": <number>}}, "direction": {{"<feature>": <number>}}}}
 
             Use exactly these feature names: {", ".join(feature_set.names)}.
-            The importance values must sum to 100."""
-        )
+            The importance values must sum to 100.""")
 
     def _parse(self, content: str, names) -> Intent:
         payload = json.loads(content.strip())

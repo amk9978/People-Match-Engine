@@ -32,8 +32,7 @@ def require_api_key():
 def judge(prompt: str, intent) -> dict:
     """Ask a stronger model whether the resolved intent matches what was asked for."""
     client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-    question = dedent(
-        f"""\
+    question = dedent(f"""\
         A matching engine turned a user's request into per-feature weights.
 
         REQUEST: "{prompt}"
@@ -43,8 +42,7 @@ def judge(prompt: str, intent) -> dict:
         who differ): {json.dumps(intent.direction)}
 
         Score from 1 to 10 how well these serve the request, and say why.
-        Return only {{"score": <1-10>, "reasoning": "<one sentence>"}}."""
-    )
+        Return only {{"score": <1-10>, "reasoning": "<one sentence>"}}.""")
 
     response = client.chat.completions.create(
         model=settings.JUDGE_MODEL,

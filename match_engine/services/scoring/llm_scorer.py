@@ -203,8 +203,7 @@ class LLMComplementarityScorer:
             f"{index}. {profile}" for index, profile in enumerate(targets, start=1)
         )
 
-        return dedent(
-            f"""\
+        return dedent(f"""\
             Rate the complementarity of professional profiles on the {category} dimension.
 
             COMPARISON PROFILES:
@@ -226,8 +225,7 @@ class LLMComplementarityScorer:
 
             "scores" holds exactly {len(targets)} arrays, one per target in the
             order listed above. Each array holds exactly {len(comparisons)}
-            numbers, one per comparison in the order listed above."""
-        )
+            numbers, one per comparison in the order listed above.""")
 
     def _parse_scores(
         self, content: Optional[str], target_count: int, comparison_count: int
