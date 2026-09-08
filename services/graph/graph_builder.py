@@ -390,6 +390,7 @@ class GraphBuilder:
         largest_dense_nodes, density = self.find_largest_dense_subgraph()
 
         result = self.get_subgraph_info(largest_dense_nodes, feature_embeddings)
+        result["complementarity"] = self.matrix_builder.scoring_report.to_dict()
 
         return result
 

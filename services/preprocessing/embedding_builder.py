@@ -12,12 +12,6 @@ from services.preprocessing.tag_extractor import tag_extractor
 
 logger = logging.getLogger(__name__)
 
-BUSINESS_TAG_COLUMNS = {
-    "industry": "Company Identity - Industry Classification",
-    "market": "Company Market - Market Traction",
-    "offering": "Company Offering - Value Proposition",
-}
-
 
 class EmbeddingBuilder:
     """Turns one text column per feature into one vector per person.
@@ -40,13 +34,6 @@ class EmbeddingBuilder:
 
     async def get_cached_embedding(self, tag: str) -> List[float]:
         return await self.embedding_service.get_embedding(tag)
-
-    def extract_business_tags_for_person(self, row: pd.Series) -> Dict[str, List[str]]:
-        """Extract business tags for a person for causal analysis"""
-        return {
-            feature: tag_extractor.extract_tags(row[column], feature)
-            for feature, column in BUSINESS_TAG_COLUMNS.items()
-        }
 
     async def embed_features(
         self, df: pd.DataFrame, feature_columns: Dict[str, str]

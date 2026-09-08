@@ -27,11 +27,10 @@ OPENAI_TIMEOUT = get_envs("OPENAI_TIMEOUT", cast=float, default=10.0)
 EMBEDDING_BATCH_DELAY = get_envs("EMBEDDING_BATCH_DELAY", cast=float, default=2.0)
 ANALYZER_BATCH_DELAY = get_envs("ANALYZER_BATCH_DELAY", cast=float, default=0.01)
 OPENAI_API_KEY = get_envs("OPENAI_API_KEY", cast=str, default="")
-GROQ_API_KEY = get_envs("GROQ_API_KEY", cast=str, default="")
 LLM_MODEL = get_envs("LLM_MODEL", cast=str, default="gpt-4o-mini")
-GROQ_MODEL = get_envs("GROQ_MODEL", cast=str, default="llama-3.1-70b-versatile")
-MAX_TOKENS = get_envs("MAX_TOKENS", cast=int, default=6000)
-MAX_TOKENS_DEDUP = get_envs("MAX_TOKENS_DEDUP", cast=int, default=50)
+COMPLEMENTARITY_MAX_COMPLETION_TOKENS = get_envs(
+    "COMPLEMENTARITY_MAX_COMPLETION_TOKENS", cast=int, default=8000
+)
 MAX_TOKENS_TUNING = get_envs("MAX_TOKENS_TUNING", cast=int, default=500)
 TEMPERATURE = get_envs("TEMPERATURE", cast=int, default=0)
 
@@ -45,9 +44,6 @@ FALLBACK_VALUE = get_envs("FALLBACK_VALUE", cast=float, default=0.5)
 
 DATA_DIR = get_envs("DATA_DIR", cast=str, default="./data")
 
-USE_FAISS = get_envs("USE_FAISS", cast=bool, default=False)
-EMBEDDING_SERVICE = get_envs("EMBEDDING_SERVICE", cast=str, default="fast")
-FAISS_INDEX_TYPE = get_envs("FAISS_INDEX_TYPE", cast=str, default="flat")
 
 SENTRY_DSN = get_envs("SENTRY_DSN", cast=str, default="")
 SENTRY_ENVIRONMENT = get_envs("SENTRY_ENVIRONMENT", cast=str, default="production")

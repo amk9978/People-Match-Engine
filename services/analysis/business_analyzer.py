@@ -1,27 +1,42 @@
 import asyncio
 import json
 import logging
-import re
-import sys
+from dataclasses import dataclass
 from textwrap import dedent
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from openai import AsyncOpenAI
 
 import settings
+from services.analysis.scoring_report import ScoringReport
 from services.cache.app_cache_service import app_cache_service
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)],
-)
 logger = logging.getLogger(__name__)
+
 FALLBACK_VALUE = settings.FALLBACK_VALUE
+
+TOKENS_PER_SCORE = 5
+ROW_OVERHEAD_TOKENS = 8
+RESPONSE_OVERHEAD_TOKENS = 32
+
+
+class MalformedScores(ValueError):
+    """The model's reply did not carry one score per comparison for every target."""
+
+
+@dataclass(frozen=True)
+class ComplementarityScores:
+    scores: Dict[str, Dict[str, float]]
+    report: ScoringReport
 
 
 class BusinessAnalyzer:
-    """Handles ChatGPT-based business complementarity analysis"""
+    """Scores how complementary two profiles are, one feature at a time.
+
+    The model receives a numbered comparison list once per batch and returns a
+    positional array of scores per target. Echoing profile text as JSON keys
+    instead cost about forty tokens per score, which overran the completion cap
+    on any realistic roster and silently turned most scores into the fallback."""
 
     def __init__(self, openai_client: AsyncOpenAI = None, cache=None):
         self.openai_client = openai_client or AsyncOpenAI(
@@ -29,288 +44,38 @@ class BusinessAnalyzer:
         )
         self.cache = cache or app_cache_service
 
-    def _parse_chatgpt_response(
-        self, result_text: str, comparison_tags: List[str]
-    ) -> Dict[str, float]:
-        """Parse ChatGPT response with multiple fallback strategies"""
-
-        # Strategy 1: Try direct JSON parsing
-        try:
-            return json.loads(result_text)
-        except json.JSONDecodeError:
-            pass
-
-        # Strategy 2: Remove markdown formatting
-        try:
-            if "```json" in result_text:
-                json_part = result_text.split("```json")[1].split("```")[0].strip()
-            elif "```" in result_text:
-                json_part = result_text.split("```")[1].split("```")[0].strip()
-            else:
-                json_part = result_text
-
-            return json.loads(json_part)
-        except (json.JSONDecodeError, IndexError):
-            pass
-
-        # Strategy 3: Find JSON-like content with regex
-        try:
-            json_match = re.search(r"\{[^{}]*\}", result_text, re.DOTALL)
-            if json_match:
-                json_content = json_match.group(0)
-                return json.loads(json_content)
-        except (json.JSONDecodeError, AttributeError):
-            pass
-
-        # Strategy 4: Extract key-value pairs manually
-        try:
-            scores = {}
-            lines = result_text.split("\n")
-            for line in lines:
-                if ":" in line and any(tag in line for tag in comparison_tags):
-                    for tag in comparison_tags:
-                        if tag in line:
-                            # Try to extract number after colon
-                            parts = line.split(":")
-                            if len(parts) >= 2:
-                                score_text = parts[1].strip().rstrip(",").rstrip("}")
-                                try:
-                                    score = float(score_text)
-                                    if 0.0 <= score <= 1.0:
-                                        scores[tag] = score
-                                        break
-                                except ValueError:
-                                    pass
-
-            if scores:
-                # Fill in missing tags with default score
-                for tag in comparison_tags:
-                    if tag not in scores:
-                        scores[tag] = FALLBACK_VALUE
-                return scores
-
-        except Exception:
-            pass
-
-        logger.info("Could not parse ChatGPT response, using fallback scores")
-        return {tag: FALLBACK_VALUE for tag in comparison_tags}
-
-    def _parse_batch_chatgpt_response(
-        self,
-        result_text: str,
-        target_profiles: List[str],
-        comparison_profiles: List[str],
-    ) -> Dict[str, Dict[str, float]]:
-        """Parse batch ChatGPT response with fallback strategies"""
-
-        try:
-            return json.loads(result_text)
-        except json.JSONDecodeError:
-            pass
-
-        try:
-            if "```json" in result_text:
-                json_part = result_text.split("```json")[1].split("```")[0].strip()
-            elif "```" in result_text:
-                json_part = result_text.split("```")[1].split("```")[0].strip()
-            else:
-                json_part = result_text
-
-            return json.loads(json_part)
-        except (json.JSONDecodeError, IndexError):
-            pass
-
-        # Strategy 3: Find complete JSON object with better regex
-        try:
-            brace_count = 0
-            start_pos = result_text.find("{")
-            if start_pos != -1:
-                for i, char in enumerate(result_text[start_pos:], start_pos):
-                    if char == "{":
-                        brace_count += 1
-                    elif char == "}":
-                        brace_count -= 1
-                        if brace_count == 0:
-                            json_content = result_text[start_pos : i + 1]
-                            return json.loads(json_content)
-        except (json.JSONDecodeError, ValueError):
-            pass
-
-        # Strategy 4: Try to find and parse nested JSON structures
-        try:
-            json_match = re.search(
-                r"{[^{}]*(?:{[^{}]*}[^{}]*)*}", result_text, re.DOTALL
-            )
-            if json_match:
-                json_content = json_match.group(0)
-                return json.loads(json_content)
-        except (json.JSONDecodeError, AttributeError):
-            pass
-
-        # Strategy 5: Manual parsing of key-value pairs from truncated response
-        try:
-            scores = {}
-            lines = result_text.split("\n")
-            current_target = None
-
-            for line in lines:
-                line = line.strip()
-                # Look for target profile names
-                for target in target_profiles:
-                    if target[:50] in line and '"' in line:
-                        current_target = target
-                        break
-
-                # Look for comparison scores
-                if current_target and ":" in line:
-                    for comp in comparison_profiles:
-                        if comp[:30] in line:
-                            try:
-                                score_match = re.search(r":\s*([0-9]*\.?[0-9]+)", line)
-                                if score_match:
-                                    score = float(score_match.group(1))
-                                    if 0.0 <= score <= 1.0:
-                                        if current_target not in scores:
-                                            scores[current_target] = {}
-                                        scores[current_target][comp] = score
-                            except (ValueError, AttributeError):
-                                pass
-
-            if scores:
-                for target in target_profiles:
-                    if target not in scores:
-                        scores[target] = {}
-                    for comp in comparison_profiles:
-                        if comp not in scores[target]:
-                            scores[target][comp] = FALLBACK_VALUE
-                return scores
-
-        except Exception:
-            pass
-
-        logger.info(
-            f"Could not parse batch ChatGPT response, using fallback scores. Result: {result_text[:100]}"
-        )
-        return {
-            target: {comp: FALLBACK_VALUE for comp in comparison_profiles}
-            for target in target_profiles
-        }
-
-    async def _process_single_batch(
-        self, batch_targets: List[str], comparison_profiles: List[str], category: str
-    ) -> Dict[str, Dict[str, float]]:
-        """Process a single batch of targets concurrently"""
-        targets_list = "\n".join(
-            [f"{j + 1}. {profile}" for j, profile in enumerate(batch_targets)]
-        )
-        comparison_list = "\n".join([f"- {profile}" for profile in comparison_profiles])
-
-        prompt = dedent(
-            f"""You are analyzing complementarity between multiple {category} target profiles and comparison profiles.
-                            TARGET PROFILES:
-                            {targets_list}
-                            
-                            COMPARISON PROFILES:
-                            {comparison_list}
-                            
-                            For EACH target profile (1-{len(batch_targets)}), rate its complementarity (0.0-1.0) against
-                             ALL comparison profiles.
-                            
-                            Scoring criteria (0.0 to 1.0):
-                            - 0.9-1.0: Highly complementary profiles that create significant strategic value together
-                            - 0.7-0.8: Strong complementarity with clear synergistic potential
-                            - 0.5-0.6: Moderate complementarity with some collaboration opportunities
-                            - 0.3-0.4: Limited complementarity, different but not particularly synergistic
-                            - 0.1-0.2: Minimal complementarity, too similar or conflicting
-                            - 0.0: No strategic value, identical or directly competing profiles
-                            
-                            Return a JSON object where each target profile maps to its scores:
-                            {{
-                              "Target Profile 1 Name": {{"Comparison 1": 0.8, "Comparison 2": 0.6}},
-                              "Target Profile 2 Name": {{"Comparison 1": 0.4, "Comparison 2": 0.9}}
-                            }}
-                            
-                            CRITICAL: Return ONLY valid JSON, no explanations, no ```json or anything added to the json
-                            answer. Use exact target profile names as keys."""
-        )
-
-        try:
-            raw = await self.openai_client.chat.completions.with_raw_response.create(
-                model=settings.LLM_MODEL,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=settings.TEMPERATURE,
-                max_tokens=settings.MAX_TOKENS,
-            )
-
-            headers = raw.headers
-            remaining_requests = headers.get("x-ratelimit-remaining-requests")
-            remaining_tokens = headers.get("x-ratelimit-remaining-tokens")
-            reset_requests = headers.get("x-ratelimit-reset-requests")
-            reset_tokens = headers.get("x-ratelimit-reset-tokens")
-            processing_ms = headers.get("openai-processing-ms")
-            request_id = headers.get("x-request-id")
-            logger.info(
-                f"single batch response received. {remaining_requests} remaining requests, {remaining_tokens}, reset_requests: {reset_requests}, reset_tokens: {reset_tokens}, processing_ms: {processing_ms}, request_id: {request_id}"
-            )
-
-            response = raw.parse()
-
-            result_text = response.choices[0].message.content.strip()
-            logger.debug(f"Raw ChatGPT response length: {len(result_text)} chars")
-            logger.debug(f"Response starts with: {result_text[:200]}")
-            logger.debug(
-                f"Response ends with: {result_text[-200:] if len(result_text) > 200 else result_text}"
-            )
-
-            batch_results = self._parse_batch_chatgpt_response(
-                result_text, batch_targets, comparison_profiles
-            )
-
-            logger.info(
-                f"  ✅ Processed batch of {len(batch_targets)} {category} profiles"
-            )
-            return batch_results
-
-        except Exception as e:
-            logger.error(f"  ❌ Batch complementarity failed for {category}: {e}")
-            logger.info(
-                f"  🔄 Falling back to individual requests for {len(batch_targets)} profiles"
-            )
-
-            individual_results = {}
-            for target in batch_targets:
-                individual_results[target] = {
-                    profile: FALLBACK_VALUE for profile in comparison_profiles
-                }
-
-            return individual_results
-
     async def get_profile_complementarity(
         self,
         target_profiles: List[str],
         comparison_profiles: List[str],
         category: str,
-        batch_size: int = 8,
-    ) -> Dict[str, Dict[str, float]]:
+    ) -> ComplementarityScores:
         """Score every target against every comparison, asking the model only for
         the pairs the cache does not already hold."""
         status = self.cache.get_complementarity_cache_status(
             target_profiles, comparison_profiles, category
         )
-        results = {target: dict(scores) for target, scores in status.cached.items()}
-
-        if not status.missing:
-            return results
+        scores = {target: dict(row) for target, row in status.cached.items()}
+        report = ScoringReport(
+            cached_pairs=sum(len(row) for row in status.cached.values())
+        )
 
         for comparisons, targets in self._group_by_missing(status.missing).items():
-            scored = await self._score_group(
-                list(targets), list(comparisons), category, batch_size
+            group_scores, group_report = await self._score_group(
+                list(targets), list(comparisons), category
             )
-            for target, scores in scored.items():
-                results.setdefault(target, {}).update(scores)
-            self.cache.cache_complementarity_scores(scored, category)
+            for target, row in group_scores.items():
+                scores.setdefault(target, {}).update(row)
+            self.cache.cache_complementarity_scores(group_scores, category)
+            report = report.merge(group_report)
 
-        return results
+        if report.fallback_pairs:
+            logger.warning(
+                f"Feature {category}: {report.fallback_pairs} of {report.total_pairs} "
+                f"pairs fell back to the neutral value"
+            )
+
+        return ComplementarityScores(scores=scores, report=report)
 
     def _group_by_missing(
         self, missing: Dict[str, List[str]]
@@ -324,48 +89,165 @@ class BusinessAnalyzer:
             groups.setdefault(tuple(comparisons), []).append(target)
         return groups
 
-    async def _score_group(
-        self,
-        targets: List[str],
-        comparisons: List[str],
-        category: str,
-        batch_size: int,
-    ) -> Dict[str, Dict[str, float]]:
-        logger.info(
-            f"Feature {category}: scoring {len(targets)} targets against "
-            f"{len(comparisons)} comparisons in batches of {batch_size}"
-        )
+    def max_targets_per_batch(self, comparison_count: int) -> int:
+        """How many targets fit in one completion, given the comparison count.
 
+        The model caps completions, so batch size follows from the roster rather
+        than from a constant. Raising a fixed batch size cannot buy headroom the
+        cap does not have."""
+        assert comparison_count > 0, "a batch needs at least one comparison"
+        per_target = comparison_count * TOKENS_PER_SCORE + ROW_OVERHEAD_TOKENS
+        budget = settings.COMPLEMENTARITY_MAX_COMPLETION_TOKENS
+        return max(1, budget // per_target)
+
+    async def _score_group(
+        self, targets: List[str], comparisons: List[str], category: str
+    ) -> Tuple[Dict[str, Dict[str, float]], ScoringReport]:
+        batch_size = self.max_targets_per_batch(len(comparisons))
         batches = [
             targets[start : start + batch_size]
             for start in range(0, len(targets), batch_size)
         ]
-        batch_results = await asyncio.gather(
-            *[
-                self._process_single_batch(batch, comparisons, category)
-                for batch in batches
-            ],
+
+        logger.info(
+            f"Feature {category}: scoring {len(targets)} targets against "
+            f"{len(comparisons)} comparisons in {len(batches)} calls of up to "
+            f"{batch_size} targets"
+        )
+
+        outcomes = await asyncio.gather(
+            *[self._score_batch(batch, comparisons, category) for batch in batches],
             return_exceptions=True,
         )
 
-        scored: Dict[str, Dict[str, float]] = {}
-        for batch, batch_result in zip(batches, batch_results):
-            if isinstance(batch_result, Exception):
-                logger.error(f"Feature {category}: batch failed: {batch_result}")
+        scores: Dict[str, Dict[str, float]] = {}
+        scored_pairs = 0
+        fallback_pairs = 0
+
+        for batch, outcome in zip(batches, outcomes):
+            if isinstance(outcome, Exception):
+                logger.error(
+                    f"Feature {category}: a batch of {len(batch)} targets failed, "
+                    f"filling with the neutral value: {outcome}"
+                )
                 for target in batch:
-                    scored[target] = {
+                    scores[target] = {
                         comparison: FALLBACK_VALUE for comparison in comparisons
                     }
+                fallback_pairs += len(batch) * len(comparisons)
                 continue
 
-            for target in batch:
-                row = batch_result.get(target)
-                if row is None:
-                    logger.warning(
-                        f"Feature {category}: no scores returned for a target, "
-                        f"using the fallback value"
-                    )
-                    row = {comparison: FALLBACK_VALUE for comparison in comparisons}
-                scored[target] = row
+            scores.update(outcome)
+            scored_pairs += len(batch) * len(comparisons)
 
-        return scored
+        return scores, ScoringReport(
+            scored_pairs=scored_pairs,
+            fallback_pairs=fallback_pairs,
+            model_calls=len(batches),
+        )
+
+    async def _score_batch(
+        self, targets: List[str], comparisons: List[str], category: str
+    ) -> Dict[str, Dict[str, float]]:
+        prompt = self._build_prompt(targets, comparisons, category)
+        max_tokens = min(
+            settings.COMPLEMENTARITY_MAX_COMPLETION_TOKENS,
+            len(targets) * (len(comparisons) * TOKENS_PER_SCORE + ROW_OVERHEAD_TOKENS)
+            + RESPONSE_OVERHEAD_TOKENS,
+        )
+
+        raw = await self.openai_client.chat.completions.with_raw_response.create(
+            model=settings.LLM_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=settings.TEMPERATURE,
+            max_tokens=max_tokens,
+        )
+        self._log_rate_limits(raw.headers, category)
+
+        content = raw.parse().choices[0].message.content
+        rows = self._parse_scores(content, len(targets), len(comparisons))
+
+        return {
+            target: dict(zip(comparisons, row)) for target, row in zip(targets, rows)
+        }
+
+    def _build_prompt(
+        self, targets: List[str], comparisons: List[str], category: str
+    ) -> str:
+        comparison_list = "\n".join(
+            f"{index}. {profile}" for index, profile in enumerate(comparisons, start=1)
+        )
+        target_list = "\n".join(
+            f"{index}. {profile}" for index, profile in enumerate(targets, start=1)
+        )
+
+        return dedent(
+            f"""\
+            Rate the complementarity of professional profiles on the {category} dimension.
+
+            COMPARISON PROFILES:
+            {comparison_list}
+
+            TARGET PROFILES:
+            {target_list}
+
+            Score each target against every comparison, from 0.0 to 1.0:
+            - 0.9-1.0: highly complementary, significant strategic value together
+            - 0.7-0.8: strong complementarity with clear synergistic potential
+            - 0.5-0.6: moderate complementarity, some collaboration opportunity
+            - 0.3-0.4: different but not particularly synergistic
+            - 0.1-0.2: too similar or directly conflicting
+            - 0.0: identical or directly competing
+
+            Return only this JSON object, no prose and no code fences:
+            {{"scores": [[...], [...]]}}
+
+            "scores" holds exactly {len(targets)} arrays, one per target in the
+            order listed above. Each array holds exactly {len(comparisons)}
+            numbers, one per comparison in the order listed above."""
+        )
+
+    def _parse_scores(
+        self, content: Optional[str], target_count: int, comparison_count: int
+    ) -> List[List[float]]:
+        """Read the score arrays, refusing anything that is not the exact shape asked for."""
+        if content is None:
+            raise MalformedScores("the model returned no content")
+
+        try:
+            payload = json.loads(content.strip())
+        except json.JSONDecodeError as error:
+            raise MalformedScores(f"reply was not JSON: {error}") from error
+
+        rows = payload.get("scores") if isinstance(payload, dict) else None
+        if not isinstance(rows, list):
+            raise MalformedScores("reply carried no 'scores' array")
+
+        if len(rows) != target_count:
+            raise MalformedScores(
+                f"expected {target_count} score arrays, got {len(rows)}"
+            )
+
+        parsed = []
+        for row in rows:
+            if not isinstance(row, list) or len(row) != comparison_count:
+                raise MalformedScores(
+                    f"expected {comparison_count} scores per target, got "
+                    f"{len(row) if isinstance(row, list) else type(row).__name__}"
+                )
+            parsed.append([self._parse_score(value) for value in row])
+
+        return parsed
+
+    def _parse_score(self, value) -> float:
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            raise MalformedScores(f"score was not a number: {value!r}")
+        return min(1.0, max(0.0, float(value)))
+
+    def _log_rate_limits(self, headers, category: str) -> None:
+        logger.debug(
+            f"Feature {category}: "
+            f"{headers.get('x-ratelimit-remaining-requests')} requests and "
+            f"{headers.get('x-ratelimit-remaining-tokens')} tokens remaining, "
+            f"request {headers.get('x-request-id')}"
+        )
