@@ -13,6 +13,6 @@ samples2/
 .env
 cache/
 data/
-
+specs/
 TODO
 CLAUDE.md
