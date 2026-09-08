@@ -6,10 +6,12 @@ import numpy as np
 import sentry_sdk
 from fastembed import TextEmbedding
 
-import settings
-from services.preprocessing.embedding_interface import EmbeddingServiceProtocol
-from services.cache.cache import EmbeddingCache
-from services.cache.factory import get_cache_backend
+from match_engine import settings
+from match_engine.services.cache.cache import EmbeddingCache
+from match_engine.services.cache.factory import get_cache_backend
+from match_engine.services.preprocessing.embedding_interface import (
+    EmbeddingServiceProtocol,
+)
 
 logger = logging.getLogger(__name__)
 

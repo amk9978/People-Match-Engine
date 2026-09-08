@@ -1,7 +1,7 @@
 import math
 from typing import Dict, Iterable, Mapping
 
-from services.scoring.profile import ScoringProfile
+from match_engine.services.scoring.profile import ScoringProfile
 
 
 def _clamp01(value: float) -> float:

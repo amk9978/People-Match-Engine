@@ -1,8 +1,8 @@
 import pandas as pd
 import pytest
 
-from services.features.feature_set import WHOLE_CELL, Feature, FeatureSet
-from services.features.schema_mapper import SchemaError, SchemaMapper
+from match_engine.services.features.feature_set import WHOLE_CELL, Feature, FeatureSet
+from match_engine.services.features.schema_mapper import SchemaError, SchemaMapper
 
 VENDOR_PRESET = "presets/vendor_six_column.yaml"
 

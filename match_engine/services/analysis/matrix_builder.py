@@ -4,10 +4,10 @@ from typing import Dict, List
 import numpy as np
 import pandas as pd
 
-from services.features.feature_set import FeatureSet
-from services.scoring.complementarity_scorer import ComplementarityScorer
-from services.scoring.llm_scorer import LLMComplementarityScorer
-from services.scoring.report import ScoringReport
+from match_engine.services.features.feature_set import FeatureSet
+from match_engine.services.scoring.complementarity_scorer import ComplementarityScorer
+from match_engine.services.scoring.llm_scorer import LLMComplementarityScorer
+from match_engine.services.scoring.report import ScoringReport
 
 logger = logging.getLogger(__name__)
 

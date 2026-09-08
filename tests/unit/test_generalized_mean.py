@@ -1,12 +1,12 @@
 import pytest
 
-from services.graph.scoring.generalized_mean import (
+from match_engine.services.graph.scoring.generalized_mean import (
     _clamp01,
     _norm_weights,
     _power_mean,
     combine_edge_weight,
 )
-from services.scoring.profile import ScoringProfile
+from match_engine.services.scoring.profile import ScoringProfile
 
 FEATURES = ("role", "experience", "industry")
 

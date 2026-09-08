@@ -4,10 +4,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from services.features.feature_set import Feature, FeatureSet
-from services.graph.graph_builder import GraphBuilder
-from services.preprocessing.csv_loader import CSVLoader
-from services.preprocessing.embedding_builder import EmbeddingBuilder
+from match_engine.services.features.feature_set import Feature, FeatureSet
+from match_engine.services.graph.graph_builder import GraphBuilder
+from match_engine.services.preprocessing.csv_loader import CSVLoader
+from match_engine.services.preprocessing.embedding_builder import EmbeddingBuilder
 
 MAPPING = "presets/vendor_six_column.yaml"
 

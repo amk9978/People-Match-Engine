@@ -5,8 +5,8 @@ from typing import Any, Dict, List, Tuple
 import pandas as pd
 import yaml
 
-import settings
-from services.features.feature_set import WHOLE_CELL, Feature, FeatureSet
+from match_engine import settings
+from match_engine.services.features.feature_set import WHOLE_CELL, Feature, FeatureSet
 
 logger = logging.getLogger(__name__)
 

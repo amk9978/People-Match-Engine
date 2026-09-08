@@ -4,14 +4,16 @@ from unittest.mock import MagicMock
 import pandas as pd
 import pytest
 
-from services.scoring.llm_scorer import LLMComplementarityScorer
-from services.analysis.matrix_builder import MatrixBuilder
-from services.cache.app_cache_service import AppCacheService
-from services.cache.memory import InMemoryBackend
-from services.graph.graph_builder import GraphBuilder
-from services.graph.scoring.similarity_calculator import SimilarityCalculator
-from services.preprocessing.csv_loader import CSVLoader
-from services.preprocessing.embedding_builder import EmbeddingBuilder
+from match_engine.services.analysis.matrix_builder import MatrixBuilder
+from match_engine.services.cache.app_cache_service import AppCacheService
+from match_engine.services.cache.memory import InMemoryBackend
+from match_engine.services.graph.graph_builder import GraphBuilder
+from match_engine.services.graph.scoring.similarity_calculator import (
+    SimilarityCalculator,
+)
+from match_engine.services.preprocessing.csv_loader import CSVLoader
+from match_engine.services.preprocessing.embedding_builder import EmbeddingBuilder
+from match_engine.services.scoring.llm_scorer import LLMComplementarityScorer
 from tests.unit.test_graph_alignment import MAPPING, StubEmbeddingService
 
 SAMPLE_CSV = "docs/sample.csv"

@@ -20,16 +20,16 @@ from fastapi import (
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
-import settings  # noqa: F401, F403
-from presentation.models import AnalysisResponse, JobStatus
-from services.analysis_service import AnalysisService
-from services.cache.cache import Cache
-from services.cache.factory import get_cache_backend
-from services.file_service import FileService
-from services.job_service import JobService
-from services.notification_service import NotificationService
-from services.user_service import UserService
-from shared.util import serialize_numpy
+from match_engine import settings  # noqa: F401, F403
+from match_engine.presentation.models import AnalysisResponse, JobStatus
+from match_engine.services.analysis_service import AnalysisService
+from match_engine.services.cache.cache import Cache
+from match_engine.services.cache.factory import get_cache_backend
+from match_engine.services.file_service import FileService
+from match_engine.services.job_service import JobService
+from match_engine.services.notification_service import NotificationService
+from match_engine.services.user_service import UserService
+from match_engine.shared.util import serialize_numpy
 
 load_dotenv()
 

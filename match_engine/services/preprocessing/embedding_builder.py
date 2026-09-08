@@ -5,10 +5,14 @@ from typing import Dict, List, Set
 import numpy as np
 import pandas as pd
 
-from services.cache.app_cache_service import app_cache_service
-from services.features.feature_set import Feature, FeatureSet
-from services.preprocessing.embedding_interface import EmbeddingServiceProtocol
-from services.preprocessing.fast_embedding_service import FastEmbeddingService
+from match_engine.services.cache.app_cache_service import app_cache_service
+from match_engine.services.features.feature_set import Feature, FeatureSet
+from match_engine.services.preprocessing.embedding_interface import (
+    EmbeddingServiceProtocol,
+)
+from match_engine.services.preprocessing.fast_embedding_service import (
+    FastEmbeddingService,
+)
 
 logger = logging.getLogger(__name__)
 

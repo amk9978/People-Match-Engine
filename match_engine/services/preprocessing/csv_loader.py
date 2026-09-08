@@ -3,8 +3,8 @@ from typing import Optional
 
 import pandas as pd
 
-from services.features.feature_set import FeatureSet
-from services.features.schema_mapper import SchemaMapper
+from match_engine.services.features.feature_set import FeatureSet
+from match_engine.services.features.schema_mapper import SchemaMapper
 
 logger = logging.getLogger(__name__)
 

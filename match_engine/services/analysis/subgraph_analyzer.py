@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 from sklearn.manifold import MDS
 
-from services.features.feature_set import FeatureSet
+from match_engine.services.features.feature_set import FeatureSet
 
 logger = logging.getLogger(__name__)
 
@@ -244,6 +244,7 @@ class SubgraphAnalyzer:
         matrix_builder,
         tuned_w_s: Dict[str, float],
         tuned_w_c: Dict[str, float],
+        feature_set: FeatureSet,
     ) -> Dict:
         """Analyze complementarity patterns within the subgraph using tuned weights"""
         if not nodes or len(nodes) < 2:
@@ -1329,6 +1330,7 @@ class SubgraphAnalyzer:
         tuned_w_s: Dict[str, float],
         tuned_w_c: Dict[str, float],
         df: pd.DataFrame,
+        feature_set: FeatureSet,
     ) -> Dict:
         """Combine embedding similarity and complementarity analysis"""
         if not nodes or len(nodes) < 2:
@@ -1371,6 +1373,8 @@ class SubgraphAnalyzer:
 
                     w_s = tuned_w_s.get(category, 1.0)
                     w_c = tuned_w_c.get(category, 1.0)
+                    if w_s + w_c <= 0:
+                        continue
 
                     hybrid_score = (w_s * sim_score + w_c * comp_score) / (w_s + w_c)
 
@@ -1420,6 +1424,7 @@ class SubgraphAnalyzer:
         matrix_builder,
         tuned_w_s: Dict[str, float],
         tuned_w_c: Dict[str, float],
+        feature_set: FeatureSet,
     ) -> Dict:
         """Analyze which features contribute most to subgraph density based on tuned parameters"""
         if not nodes or len(nodes) < 2:
@@ -1441,6 +1446,8 @@ class SubgraphAnalyzer:
             similarity_weight = tuned_w_s.get(category, 1.0)
             complementarity_weight = tuned_w_c.get(category, 1.0)
             total_weight = similarity_weight + complementarity_weight
+            if total_weight <= 0:
+                continue
 
             category_sim_scores = []
             category_comp_scores = []
@@ -1540,7 +1547,11 @@ class SubgraphAnalyzer:
         }
 
     def analyze_dataset_values(
-        self, nodes: Set[int], df: pd.DataFrame, matrix_builder
+        self,
+        nodes: Set[int],
+        df: pd.DataFrame,
+        matrix_builder,
+        feature_set: FeatureSet,
     ) -> Dict:
         """Extract and analyze actual dataset values for subgraph members"""
         if not nodes:

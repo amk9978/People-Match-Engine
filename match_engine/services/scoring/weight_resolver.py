@@ -3,8 +3,8 @@ from typing import Dict, Tuple
 
 import numpy as np
 
-from services.scoring.informativeness import measure_all
-from services.scoring.intent import Intent
+from match_engine.services.scoring.informativeness import measure_all
+from match_engine.services.scoring.intent import Intent
 
 logger = logging.getLogger(__name__)
 
@@ -55,10 +55,10 @@ class WeightResolver:
             f"Informativeness: similarity {_rounded(info_s)}, "
             f"complementarity {_rounded(info_c)}"
         )
-        return _normalize(w_s), _normalize(w_c)
+        return normalize_weights(w_s), normalize_weights(w_c)
 
 
-def _normalize(weights: Dict[str, float]) -> Dict[str, float]:
+def normalize_weights(weights: Dict[str, float]) -> Dict[str, float]:
     """Scale to sum one, falling back to uniform when every weight is zero."""
     total = sum(weights.values())
     if total <= 0:

@@ -4,15 +4,15 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
-from services.features.feature_set import Feature, FeatureSet
-from services.scoring.calibration import calibrate_all, rank_normalize
-from services.scoring.informativeness import informativeness, measure_all
-from services.scoring.intent import (
+from match_engine.services.features.feature_set import Feature, FeatureSet
+from match_engine.services.scoring.calibration import calibrate_all, rank_normalize
+from match_engine.services.scoring.informativeness import informativeness, measure_all
+from match_engine.services.scoring.intent import (
     Intent,
     LLMIntentResolver,
     UniformIntentResolver,
 )
-from services.scoring.weight_resolver import WeightResolver
+from match_engine.services.scoring.weight_resolver import WeightResolver
 
 FEATURE_SET = FeatureSet(
     features=(

@@ -2,9 +2,9 @@ import json
 from datetime import datetime
 from typing import Dict, List, Optional
 
-from models.user import User, UserStats
-from services.cache.cache import Cache
-from services.cache.factory import get_cache_backend
+from match_engine.models.user import User, UserStats
+from match_engine.services.cache.cache import Cache
+from match_engine.services.cache.factory import get_cache_backend
 
 
 class UserService:

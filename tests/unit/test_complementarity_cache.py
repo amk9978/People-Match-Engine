@@ -1,7 +1,7 @@
 import pytest
 
-from services.cache.app_cache_service import AppCacheService
-from services.cache.memory import InMemoryBackend
+from match_engine.services.cache.app_cache_service import AppCacheService
+from match_engine.services.cache.memory import InMemoryBackend
 
 ROLE = "role"
 

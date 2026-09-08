@@ -6,9 +6,9 @@ from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
-from services.cache.backend import CacheBackend
-from services.cache.cache import Cache, EmbeddingCache
-from services.cache.factory import get_cache_backend
+from match_engine.services.cache.backend import CacheBackend
+from match_engine.services.cache.cache import Cache, EmbeddingCache
+from match_engine.services.cache.factory import get_cache_backend
 
 logger = logging.getLogger(__name__)
 

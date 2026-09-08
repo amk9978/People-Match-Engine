@@ -1,9 +1,9 @@
 import pytest
 
-from services.cache.cache import Cache, EmbeddingCache
-from services.cache.factory import create_cache_backend
-from services.cache.memory import InMemoryBackend
-from services.cache.redis_backend import RedisUnavailable
+from match_engine.services.cache.cache import Cache, EmbeddingCache
+from match_engine.services.cache.factory import create_cache_backend
+from match_engine.services.cache.memory import InMemoryBackend
+from match_engine.services.cache.redis_backend import RedisUnavailable
 
 
 @pytest.fixture
@@ -27,7 +27,9 @@ class TestInMemoryBackend:
 
     def test_expired_key_reads_as_missing(self, backend, monkeypatch):
         clock = [1000.0]
-        monkeypatch.setattr("services.cache.memory.time.monotonic", lambda: clock[0])
+        monkeypatch.setattr(
+            "match_engine.services.cache.memory.time.monotonic", lambda: clock[0]
+        )
         backend.set("k", "v", ttl=10)
         assert backend.get("k") == "v"
         clock[0] += 11
@@ -134,7 +136,7 @@ class TestBackendSelection:
         def refuse(redis_url):
             raise RedisUnavailable(f"cannot reach Redis at {redis_url}")
 
-        monkeypatch.setattr("services.cache.factory.RedisBackend", refuse)
+        monkeypatch.setattr("match_engine.services.cache.factory.RedisBackend", refuse)
 
         backend = create_cache_backend("redis://localhost:6379/0")
         assert isinstance(backend, InMemoryBackend)

@@ -10,19 +10,21 @@ import networkx as nx
 import numpy as np
 import pandas as pd
 
-import settings
-from services.analysis.matrix_builder import MatrixBuilder
-from services.analysis.subgraph_analyzer import SubgraphAnalyzer
-from services.cache.cache import Cache
-from services.cache.factory import get_cache_backend
-from services.graph.scoring.generalized_mean import combine_edge_weight
-from services.graph.scoring.similarity_calculator import SimilarityCalculator
-from services.preprocessing.csv_loader import CSVLoader
-from services.preprocessing.embedding_builder import EmbeddingBuilder
-from services.scoring.calibration import calibrate_all
-from services.scoring.intent import create_intent_resolver, sample_values
-from services.scoring.profile import ScoringProfile
-from services.scoring.weight_resolver import WeightResolver
+from match_engine import settings
+from match_engine.services.analysis.matrix_builder import MatrixBuilder
+from match_engine.services.analysis.subgraph_analyzer import SubgraphAnalyzer
+from match_engine.services.cache.cache import Cache
+from match_engine.services.cache.factory import get_cache_backend
+from match_engine.services.graph.scoring.generalized_mean import combine_edge_weight
+from match_engine.services.graph.scoring.similarity_calculator import (
+    SimilarityCalculator,
+)
+from match_engine.services.preprocessing.csv_loader import CSVLoader
+from match_engine.services.preprocessing.embedding_builder import EmbeddingBuilder
+from match_engine.services.scoring.calibration import calibrate_all
+from match_engine.services.scoring.intent import create_intent_resolver, sample_values
+from match_engine.services.scoring.profile import ScoringProfile
+from match_engine.services.scoring.weight_resolver import WeightResolver
 
 logger = logging.getLogger(__name__)
 

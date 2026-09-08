@@ -8,10 +8,10 @@ from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
-import settings
-from models.file import DatasetDiff, File, FileStats, FileVersion
-from services.cache.cache import Cache
-from services.cache.factory import get_cache_backend
+from match_engine import settings
+from match_engine.models.file import DatasetDiff, File, FileStats, FileVersion
+from match_engine.services.cache.cache import Cache
+from match_engine.services.cache.factory import get_cache_backend
 
 logger = logging.getLogger(__name__)
 

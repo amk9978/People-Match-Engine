@@ -3,9 +3,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from services.scoring.llm_scorer import LLMComplementarityScorer, MalformedScores
-from services.cache.app_cache_service import AppCacheService
-from services.cache.memory import InMemoryBackend
+from match_engine.services.cache.app_cache_service import AppCacheService
+from match_engine.services.cache.memory import InMemoryBackend
+from match_engine.services.scoring.llm_scorer import (
+    LLMComplementarityScorer,
+    MalformedScores,
+)
 
 ROLE = "role"
 
@@ -190,7 +193,9 @@ class TestBatchSizing:
         assert analyzer.max_targets_per_batch(10) > analyzer.max_targets_per_batch(400)
 
     def test_a_batch_never_exceeds_the_completion_budget(self, monkeypatch):
-        monkeypatch.setattr("settings.COMPLEMENTARITY_MAX_COMPLETION_TOKENS", 8000)
+        monkeypatch.setattr(
+            "match_engine.settings.COMPLEMENTARITY_MAX_COMPLETION_TOKENS", 8000
+        )
         analyzer = make_analyzer()
 
         for comparison_count in (1, 10, 69, 400, 5000):

@@ -7,15 +7,31 @@ from typing import Dict, Optional
 
 import pandas as pd
 
-from models.job import JobConfiguration, JobResult, JobStatus, JobType
-from services.file_service import FileService
-from services.graph.graph_builder import GraphBuilder
-from services.job_service import JobService
-from services.cache.cache import Cache
-from services.cache.factory import get_cache_backend
-from shared.util import sanitize_metrics, serialize_numpy
+from match_engine.models.job import JobConfiguration, JobResult, JobStatus, JobType
+from match_engine.services.cache.cache import Cache
+from match_engine.services.cache.factory import get_cache_backend
+from match_engine.services.file_service import FileService
+from match_engine.services.job_service import JobService
+from match_engine.services.match_run import MatchRequest, MatchRun
+from match_engine.services.scoring.profile import ScoringProfile
+from match_engine.services.scoring.weights import ExplicitWeights
+from match_engine.shared.util import sanitize_metrics, serialize_numpy
 
 logger = logging.getLogger(__name__)
+
+
+class JobProgress:
+    """Writes each pipeline stage to the job record and out to the websocket."""
+
+    def __init__(self, service: "AnalysisService", job_id: str, notification_service):
+        self.service = service
+        self.job_id = job_id
+        self.notification_service = notification_service
+
+    async def report(self, stage: str) -> None:
+        await self.service._update_job_and_notify(
+            self.job_id, "processing", f"{stage}...", self.notification_service
+        )
 
 
 class AnalysisService:
@@ -167,122 +183,60 @@ class AnalysisService:
         notification_service,
         min_density: float = None,
         prompt: Optional[str] = None,
+        weights: Optional[ExplicitWeights] = None,
+        scoring_profile: Optional[ScoringProfile] = None,
     ):
-        """Run graph analysis with progress notifications"""
+        """Run one match through MatchRun, reporting each stage to the job store."""
         try:
-            if os.path.exists(csv_path):
-                temp_df = pd.read_csv(csv_path)
-                sample_names = (
-                    list(temp_df["Person Name"].head(3))
-                    if "Person Name" in temp_df.columns
-                    else []
-                )
-
-            await self._update_job_and_notify(
-                job_id,
-                "processing",
-                "Validating caches...",
-                notification_service,
-            )
             self._invalidate_job_caches(job_id)
-
-            await self._update_job_and_notify(
-                job_id,
-                "processing",
-                "Initializing GraphBuilder...",
-                notification_service,
-            )
-
-            graph_builder = GraphBuilder(csv_path, min_density)
-
-            await self._update_job_and_notify(
-                job_id, "processing", "Loading data...", notification_service
-            )
-
-            # Force fresh data load - critical for updated jobs with new files
-            graph_builder.load_data()
-            logger.info(f"Loaded {len(graph_builder.df)} rows from {csv_path}")
-
-            await self._update_job_and_notify(
-                job_id,
-                "processing",
-                "Preprocessing tags and embeddings...",
-                notification_service,
-            )
-
-            await self._update_job_and_notify(
-                job_id,
-                "processing",
-                "Creating feature embeddings...",
-                notification_service,
-            )
-            feature_embeddings = await graph_builder.embed_features()
-
-            await self._update_job_and_notify(
-                job_id,
-                "processing",
-                "Building optimized graph with weight tuning...",
-                notification_service,
-            )
 
             job = self.job_service.get_job(job_id)
             file_id = job.file_id if job else None
             if not file_id:
                 raise ValueError(f"No file_id found for job {job_id}")
 
-            await graph_builder.create_graph(feature_embeddings, job_id, prompt)
-            await self._update_job_and_notify(
-                job_id, "processing", "Finding dense subgraph...", notification_service
+            run = MatchRun(
+                MatchRequest(
+                    csv_path=csv_path,
+                    prompt=prompt,
+                    min_density=min_density,
+                    weights=weights,
+                    scoring_profile=scoring_profile,
+                ),
+                progress=JobProgress(self, job_id, notification_service),
             )
-            largest_dense_nodes, density = graph_builder.find_largest_dense_subgraph()
+            match = await run.execute()
 
-            await self._update_job_and_notify(
-                job_id,
-                "processing",
-                "Analyzing results and generating insights...",
-                notification_service,
-            )
-            result = graph_builder.get_subgraph_info(
-                largest_dense_nodes, feature_embeddings
-            )
-
+            result = dict(match.info)
             result["expansion_recommendations"] = []
-
             result["debug_info"] = {
                 "csv_path": csv_path,
-                "dataset_rows": len(graph_builder.df),
+                "dataset_rows": match.row_count,
                 "job_id": job_id,
-                "file_id": file_id if "file_id" in locals() else "unknown",
+                "file_id": file_id,
                 "analysis_timestamp": datetime.now().isoformat(),
             }
 
-            if hasattr(graph_builder, "df") and not graph_builder.df.empty:
-                sample_names = (
-                    list(graph_builder.df["Person Name"].head(3))
-                    if "Person Name" in graph_builder.df.columns
-                    else []
-                )
-
-            if os.path.exists(csv_path):
-                os.remove(csv_path)
-
-            serialized_result = serialize_numpy(result)
+            self._discard(csv_path)
 
             await self._update_job_and_notify(
                 job_id,
                 "completed",
                 "Analysis complete",
                 notification_service,
-                serialized_result,
+                serialize_numpy(result),
             )
 
         except Exception as e:
+            logger.exception(f"Analysis failed for job {job_id}")
             await self._update_job_and_notify(
                 job_id, "failed", f"Error: {str(e)}", notification_service, error=str(e)
             )
+            self._discard(csv_path)
 
-            if os.path.exists(csv_path):
-                os.remove(csv_path)
+    def _discard(self, csv_path: str) -> None:
+        if os.path.exists(csv_path):
+            os.remove(csv_path)
 
     async def process_file_upload_and_analysis(
         self,
@@ -373,7 +327,7 @@ class AnalysisService:
         notification_service=None,
     ):
         """Run analysis with proper status tracking and error handling"""
-        from models.job import JobStatus as JobStatusEnum
+        from match_engine.models.job import JobStatus as JobStatusEnum
 
         try:
             job_service.update_job_status(job_id, JobStatusEnum.RUNNING)

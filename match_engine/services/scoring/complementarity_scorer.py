@@ -1,6 +1,6 @@
 from typing import Dict, List, Protocol
 
-from services.scoring.report import ScoringReport
+from match_engine.services.scoring.report import ScoringReport
 
 
 class ScoredPairs(Protocol):

@@ -1,0 +1,61 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "match-engine"
+version = "0.2.0"
+description = "Find the group of people most worth putting in a room together"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.12"
+authors = [{ name = "Amir Karimi" }]
+keywords = ["graph", "matching", "networking", "embeddings", "densest-subgraph"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "fastapi>=0.116,<1.0",
+    "fastembed>=0.7,<0.8",
+    "networkx>=3.5,<4.0",
+    "numpy>=2.3,<3.0",
+    "openai>=1.101,<2.0",
+    "pandas>=2.3,<3.0",
+    "pydantic>=2.11,<3.0",
+    "python-decouple>=3.8,<4.0",
+    "python-dotenv>=1.1,<2.0",
+    "python-multipart>=0.0.20,<0.1",
+    "pyyaml>=6.0,<7.0",
+    "scikit-learn>=1.7,<2.0",
+    "scipy>=1.16,<2.0",
+    "sentry-sdk>=2.35,<3.0",
+    "typer>=0.27,<0.28",
+    "uvicorn>=0.35,<1.0",
+    "websockets>=15.0,<16.0",
+]
+
+[project.optional-dependencies]
+redis = ["redis>=6.4,<7.0"]
+dev = ["black>=25.1", "isort>=6.0", "pytest>=8.4"]
+
+[project.urls]
+Homepage = "https://github.com/amk9978/match-engine"
+Repository = "https://github.com/amk9978/match-engine"
+
+[project.scripts]
+match-engine = "match_engine.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["match_engine"]
+
+[tool.hatch.build.targets.sdist]
+include = ["match_engine", "presets", "tests", "README.md", "LICENSE"]
+
+[tool.isort]
+profile = "black"
+
+[tool.black]
+target-version = ["py312"]

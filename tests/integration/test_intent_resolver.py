@@ -6,9 +6,9 @@ import openai
 import pandas as pd
 import pytest
 
-import settings
-from services.features.schema_mapper import SchemaMapper
-from services.scoring.intent import LLMIntentResolver
+from match_engine import settings
+from match_engine.services.features.schema_mapper import SchemaMapper
+from match_engine.services.scoring.intent import LLMIntentResolver
 
 pytestmark = pytest.mark.integration
 

@@ -1,9 +1,13 @@
+import os
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from services.cache.factory import set_cache_backend
-from services.cache.memory import InMemoryBackend
+os.environ["SENTRY_DSN"] = ""
+os.environ["REDIS_URL"] = ""
+
+from match_engine.services.cache.factory import set_cache_backend
+from match_engine.services.cache.memory import InMemoryBackend
 
 pytest_plugins = ("pytest_asyncio",)
 
@@ -18,9 +22,11 @@ def in_memory_cache():
 
 @pytest.fixture(autouse=True)
 def mock_settings():
-    with patch("settings.OPENAI_API_KEY", "test-api-key"), patch(
-        "settings.EMBEDDING_BATCH_DELAY", 1.0
-    ), patch("settings.MIN_DENSITY", 0.1):
+    with (
+        patch("match_engine.settings.OPENAI_API_KEY", "test-api-key"),
+        patch("match_engine.settings.EMBEDDING_BATCH_DELAY", 1.0),
+        patch("match_engine.settings.MIN_DENSITY", 0.1),
+    ):
         yield
 
 

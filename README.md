@@ -1,6 +1,6 @@
 # Match Engine
 
-[![CI](https://github.com/amk9978/people_match_engine/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/amk9978/people_match_engine/actions/workflows/ci-cd.yml)
+[![CI](https://github.com/amk9978/match-engine/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/amk9978/match-engine/actions/workflows/ci-cd.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
 Point it at a roster of people and it returns the group most worth putting in a
@@ -14,7 +14,7 @@ densest group in that graph is the answer.
 ## Quickstart
 
 ```bash
-git clone https://github.com/amk9978/people_match_engine && cd people_match_engine
+git clone https://github.com/amk9978/match-engine && cd match-engine
 cp .env.example .env          # set OPENAI_API_KEY
 docker compose up -d
 

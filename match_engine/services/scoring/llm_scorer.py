@@ -7,9 +7,9 @@ from typing import Dict, List, Optional, Tuple
 
 from openai import AsyncOpenAI
 
-import settings
-from services.cache.app_cache_service import app_cache_service
-from services.scoring.report import ScoringReport
+from match_engine import settings
+from match_engine.services.cache.app_cache_service import app_cache_service
+from match_engine.services.scoring.report import ScoringReport
 
 logger = logging.getLogger(__name__)
 

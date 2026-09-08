@@ -6,8 +6,8 @@ from typing import Dict, List, Protocol
 
 import openai
 
-import settings
-from services.features.feature_set import FeatureSet
+from match_engine import settings
+from match_engine.services.features.feature_set import FeatureSet
 
 logger = logging.getLogger(__name__)
 

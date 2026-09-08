@@ -4,7 +4,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import numpy as np
 import pytest
 
-from services.preprocessing.fast_embedding_service import FastEmbeddingService
+from match_engine.services.preprocessing.fast_embedding_service import (
+    FastEmbeddingService,
+)
 
 
 class TestFastEmbeddingService:
@@ -19,12 +21,15 @@ class TestFastEmbeddingService:
 
     @pytest.fixture
     def fast_embedding_service(self, mock_cache, mock_text_embedding_model):
-        with patch(
-            "services.preprocessing.fast_embedding_service.EmbeddingCache",
-            return_value=mock_cache,
-        ), patch(
-            "services.preprocessing.fast_embedding_service.TextEmbedding",
-            return_value=mock_text_embedding_model,
+        with (
+            patch(
+                "match_engine.services.preprocessing.fast_embedding_service.EmbeddingCache",
+                return_value=mock_cache,
+            ),
+            patch(
+                "match_engine.services.preprocessing.fast_embedding_service.TextEmbedding",
+                return_value=mock_text_embedding_model,
+            ),
         ):
             service = FastEmbeddingService()
             service.cache = mock_cache
@@ -197,15 +202,19 @@ class TestFastEmbeddingService:
         assert mock_text_embedding_model.embed.call_count == 3
 
     def test_service_initialization(self, mock_cache, mock_text_embedding_model):
-        with patch(
-            "services.preprocessing.fast_embedding_service.EmbeddingCache",
-            return_value=mock_cache,
-        ), patch(
-            "services.preprocessing.fast_embedding_service.TextEmbedding",
-            return_value=mock_text_embedding_model,
-        ), patch(
-            "services.preprocessing.fast_embedding_service.settings.EMBEDDING_BATCH_DELAY",
-            2.5,
+        with (
+            patch(
+                "match_engine.services.preprocessing.fast_embedding_service.EmbeddingCache",
+                return_value=mock_cache,
+            ),
+            patch(
+                "match_engine.services.preprocessing.fast_embedding_service.TextEmbedding",
+                return_value=mock_text_embedding_model,
+            ),
+            patch(
+                "match_engine.services.preprocessing.fast_embedding_service.settings.EMBEDDING_BATCH_DELAY",
+                2.5,
+            ),
         ):
 
             service = FastEmbeddingService(model_name="test-model")
