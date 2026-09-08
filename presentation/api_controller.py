@@ -1,4 +1,5 @@
 import logging
+import sys
 from datetime import datetime
 from typing import Optional
 
@@ -28,8 +29,15 @@ from services.file_service import FileService
 from services.job_service import JobService
 from services.notification_service import NotificationService
 from services.user_service import UserService
+from shared.util import serialize_numpy
 
 load_dotenv()
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)],
+)
 logger = logging.getLogger(__name__)
 
 
@@ -148,8 +156,8 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
 
 @app.get("/")
 async def root():
-    """Serve the websocket demo HTML page"""
-    return FileResponse("websocket_prod.html")
+    """Serve the demo front end"""
+    return FileResponse("frontend.html")
 
 
 @app.post("/analyze", response_model=AnalysisResponse)
@@ -214,6 +222,20 @@ async def analyze_csv(
         raise HTTPException(status_code=500, detail=f"Failed to process file: {str(e)}")
 
 
+@app.get("/jobs/stats")
+async def get_job_stats(user_id: Optional[str] = Header(None, alias="X-User-ID")):
+    """Get job statistics"""
+    stats = job_service.get_job_stats(user_id)
+    return stats.to_dict()
+
+
+@app.delete("/jobs/cleanup")
+async def cleanup_old_jobs(days: int = Query(30, description="Days to keep jobs")):
+    """Admin endpoint to cleanup old completed jobs"""
+    deleted_count = job_service.cleanup_old_jobs(days)
+    return {"message": f"Cleaned up {deleted_count} old jobs"}
+
+
 @app.get("/jobs/{job_id}", response_model=JobStatus)
 async def get_job_status(job_id: str):
     job = job_service.get_job(job_id)
@@ -231,13 +253,6 @@ async def get_job_status(job_id: str):
     )
 
 
-@app.get("/jobs")
-async def list_jobs():
-    """List all analysis jobs"""
-    jobs = job_service.get_active_jobs()
-    return {"jobs": [job.to_dict() for job in jobs], "total": len(jobs)}
-
-
 @app.delete("/jobs/{job_id}")
 async def delete_job(job_id: str):
     """Delete a job and its results"""
@@ -245,27 +260,6 @@ async def delete_job(job_id: str):
         raise HTTPException(status_code=404, detail="Job not found")
 
     return {"message": f"Job {job_id} deleted successfully"}
-
-
-def _sanitize_nan_values(obj):
-    """Recursively sanitize NaN and inf values from nested data structures"""
-    import math
-
-    import numpy as np
-
-    if isinstance(obj, dict):
-        return {k: _sanitize_nan_values(v) for k, v in obj.items()}
-    elif isinstance(obj, list):
-        return [_sanitize_nan_values(item) for item in obj]
-    elif isinstance(obj, (float, np.floating)):
-        value = float(obj)
-        if math.isnan(value) or math.isinf(value):
-            return None
-        return value
-    elif isinstance(obj, (int, np.integer)):
-        return int(obj)
-    else:
-        return obj
 
 
 @app.get("/jobs/{job_id}/result")
@@ -278,9 +272,7 @@ async def get_job_result(job_id: str):
             status_code=404, detail="Job result not found or job not completed"
         )
 
-    # Sanitize result data to remove NaN values before JSON serialization
-    sanitized_result_data = _sanitize_nan_values(result.result_data)
-    return {"job_id": job_id, "result": sanitized_result_data}
+    return {"job_id": job_id, "result": serialize_numpy(result.result_data)}
 
 
 @app.get("/users/{user_id}/jobs")
@@ -411,20 +403,6 @@ async def restart_job(job_id: str, user_id: str = Header(..., alias="X-User-ID")
         raise HTTPException(
             status_code=400, detail="Cannot restart job in current state"
         )
-
-
-@app.get("/jobs/stats")
-async def get_job_stats(user_id: Optional[str] = Header(None, alias="X-User-ID")):
-    """Get job statistics"""
-    stats = job_service.get_job_stats(user_id)
-    return stats.to_dict()
-
-
-@app.delete("/jobs/cleanup")
-async def cleanup_old_jobs(days: int = Query(30, description="Days to keep jobs")):
-    """Admin endpoint to cleanup old completed jobs"""
-    deleted_count = job_service.cleanup_old_jobs(days)
-    return {"message": f"Cleaned up {deleted_count} old jobs"}
 
 
 if __name__ == "__main__":

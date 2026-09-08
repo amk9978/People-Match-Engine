@@ -723,7 +723,8 @@
                 clientId = 'web_client_' + Math.random().toString(36).substr(2, 9);
                 localStorage.setItem('ws_client_id', clientId);
             }
-            const wsUrl = `ws://localhost:8000/ws/${clientId}`;
+            const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${wsProtocol}//${window.location.host}/ws/${clientId}`;
 
             websocket = new WebSocket(wsUrl);
 
@@ -901,7 +902,7 @@
             try {
                 logMessage('📊 Fetching detailed job results...', 'info');
 
-                const response = await fetch(`http://localhost:8000/jobs/${jobId}`, {
+                const response = await fetch(`/jobs/${jobId}`, {
                     method: 'GET',
                     headers: {
                         'Content-Type': 'application/json'
@@ -1531,7 +1532,7 @@
                     return;
                 }
 
-                const response = await fetch('http://localhost:8000/analyze', {
+                const response = await fetch('/analyze', {
                     method: 'POST',
                     headers: {
                         'X-User-ID': userId
@@ -2045,7 +2046,7 @@
             }
 
             try {
-                const response = await fetch(`http://localhost:8000/users/${userId}/jobs`);
+                const response = await fetch(`/users/${userId}/jobs`);
                 if (response.ok) {
                     const data = await response.json();
                     displayJobsList(data.jobs);
@@ -2071,7 +2072,7 @@
 
         async function loadJobById(jobId) {
             try {
-                const response = await fetch(`http://localhost:8000/jobs/${jobId}/result`);
+                const response = await fetch(`/jobs/${jobId}/result`);
                 if (response.ok) {
                     const jobResult = await response.json();
                     if (jobResult && jobResult.result) {
@@ -2231,7 +2232,7 @@
             try {
                 logMessage('🔄 Starting rerun analysis...', 'info');
 
-                const response = await fetch('http://localhost:8000/analyze', {
+                const response = await fetch('/analyze', {
                     method: 'POST',
                     headers: {
                         'X-User-ID': rerunUserId

@@ -27,6 +27,9 @@ from services.scoring.weight_resolver import WeightResolver
 logger = logging.getLogger(__name__)
 
 
+MIN_SUBGRAPH_NODES = 3
+
+
 def _rounded(weights: Dict[str, float]) -> Dict[str, float]:
     return {name: round(value, 3) for name, value in weights.items()}
 
@@ -143,7 +146,7 @@ class GraphBuilder:
             if graph:
                 self.graph = graph
                 logger.info(
-                    f"✅ Loaded graph from cache ({len(graph.nodes)} nodes, {len(graph.edges)} edges)"
+                    f"Loaded graph from cache: {len(graph.nodes)} nodes, {len(graph.edges)} edges"
                 )
                 return True
         return False
@@ -160,7 +163,7 @@ class GraphBuilder:
             success = self.cache.set(cache_key, serialized)
             if success:
                 logger.info(
-                    f"💾 Cached graph with {len(self.graph.nodes)} nodes and {len(self.graph.edges)} edges"
+                    f"Cached graph: {len(self.graph.nodes)} nodes, {len(self.graph.edges)} edges"
                 )
             return success
         return False
@@ -174,7 +177,7 @@ class GraphBuilder:
             embeddings = self._deserialize_embeddings(cached_embeddings)
             if embeddings:
                 logger.info(
-                    f"✅ Loaded embeddings from cache ({len(embeddings)} features)"
+                    f"Loaded embeddings from cache for {len(embeddings)} features"
                 )
                 return embeddings
         return None
@@ -189,7 +192,7 @@ class GraphBuilder:
         if serialized:
             success = self.cache.set(cache_key, serialized)
             if success:
-                logger.info(f"💾 Cached embeddings for {len(embeddings)} features")
+                logger.info(f"Cached embeddings for {len(embeddings)} features")
             return success
         return False
 
@@ -296,99 +299,79 @@ class GraphBuilder:
             return row[self.feature_set.company_column]
         return ""
 
+    def _weighted_degree(self, graph: nx.Graph, node: int) -> float:
+        return sum(
+            data.get("weight", 0.0) for _, _, data in graph.edges(node, data=True)
+        )
+
+    def _peel_lightest_node(
+        self, graph: nx.Graph, heap: List[Tuple[float, int]]
+    ) -> bool:
+        """Remove the node carrying the least weight and reprice its neighbours.
+
+        Heap entries go stale as neighbours lose edges, so an entry is only acted
+        on when it still matches the node's current degree."""
+        while heap:
+            recorded_degree, node = heapq.heappop(heap)
+
+            if node not in graph:
+                continue
+
+            current_degree = self._weighted_degree(graph, node)
+            if abs(current_degree - recorded_degree) >= 1e-6:
+                heapq.heappush(heap, (current_degree, node))
+                continue
+
+            neighbors = list(graph.neighbors(node))
+            graph.remove_node(node)
+            for neighbor in neighbors:
+                heapq.heappush(heap, (self._weighted_degree(graph, neighbor), neighbor))
+            return True
+
+        return False
+
     def densest_subgraph_peeling(self, find_all: bool = False) -> List[Set[int]]:
-        """Find dense subgraphs using iterative peeling algorithm"""
+        """Peel the lightest node repeatedly, keeping every subgraph dense enough.
+
+        Charikar-style greedy peeling on the weighted degree. Each pass records
+        the working graph if it clears the density threshold, then drops the node
+        contributing least."""
         if not self.graph:
             raise ValueError("Graph not created yet. Call create_graph() first.")
 
         logger.info(
-            f"🔍 Finding dense subgraphs (min_density={self.min_density:.3f})..."
+            f"Peeling for subgraphs with density at least {self.min_density:.3f}"
         )
+
         dense_subgraphs = []
         working_graph = self.graph.copy()
+        heap = [
+            (self._weighted_degree(working_graph, node), node)
+            for node in working_graph.nodes()
+        ]
+        heapq.heapify(heap)
 
-        heap = []
-        for node in working_graph.nodes():
-            weighted_degree = sum(
-                data.get("weight", 0.0)
-                for _, _, data in working_graph.edges(node, data=True)
-            )
-            heapq.heappush(heap, (weighted_degree, node))
-
-        iteration = 0
-        while heap and working_graph.number_of_nodes() > 0:
-            iteration += 1
-            logger.info(f"\n--- Iteration {iteration} ---")
-            logger.info(
-                f"Working graph: {working_graph.number_of_nodes()} nodes, {working_graph.number_of_edges()} edges"
-            )
-
-            if working_graph.number_of_nodes() < 3:
-                logger.info("⏹️ Stopping: Less than 3 nodes remaining")
-                break
-
+        while heap and working_graph.number_of_nodes() >= MIN_SUBGRAPH_NODES:
             current_nodes = set(working_graph.nodes())
             current_density = self.calculate_subgraph_density(current_nodes)
-            logger.info(f"Current subgraph density: {current_density:.4f}")
+            logger.debug(
+                f"{len(current_nodes)} nodes remaining, density {current_density:.4f}"
+            )
 
             if current_density >= self.min_density:
-                logger.info(f"✅ Found dense subgraph with {len(current_nodes)} nodes")
-
-                edges_in_subgraph = working_graph.subgraph(current_nodes).edges(
-                    data=True
-                )
-                if edges_in_subgraph:
-                    total_weight = sum(
-                        data.get("weight", 0.0) for _, _, data in edges_in_subgraph
-                    )
-                    avg_weight = total_weight / len(edges_in_subgraph)
-                else:
-                    avg_weight = 0.0
-
                 dense_subgraphs.append(current_nodes)
                 if not find_all:
                     logger.info(
-                        "🎯 Found target dense subgraph, stopping early (find_all=False)"
+                        f"Found a dense subgraph of {len(current_nodes)} nodes, "
+                        f"density {current_density:.4f}"
                     )
                     return dense_subgraphs
 
-            while heap:
-                min_weighted_degree, min_weighted_node = heapq.heappop(heap)
-
-                if min_weighted_node not in working_graph:
-                    continue
-
-                current_weighted_degree = sum(
-                    data.get("weight", 0.0)
-                    for _, _, data in working_graph.edges(min_weighted_node, data=True)
-                )
-
-                if abs(current_weighted_degree - min_weighted_degree) < 1e-6:
-                    logger.info(
-                        f"Removing node {min_weighted_node} (weighted_degree={min_weighted_degree:.4f})"
-                    )
-
-                    neighbors = list(working_graph.neighbors(min_weighted_node))
-                    working_graph.remove_node(min_weighted_node)
-
-                    for neighbor in neighbors:
-                        if neighbor in working_graph:
-                            new_weighted_degree = sum(
-                                data.get("weight", 0.0)
-                                for _, _, data in working_graph.edges(
-                                    neighbor, data=True
-                                )
-                            )
-                            heapq.heappush(heap, (new_weighted_degree, neighbor))
-                    break
-                else:
-
-                    heapq.heappush(heap, (current_weighted_degree, min_weighted_node))
+            if not self._peel_lightest_node(working_graph, heap):
+                break
 
         if not dense_subgraphs:
-            logger.info(
-                f"❌ No dense subgraphs found with density >= {self.min_density}"
-            )
+            logger.info(f"No subgraph reached density {self.min_density}")
 
         return dense_subgraphs
 
@@ -403,7 +386,8 @@ class GraphBuilder:
         largest_density = self.calculate_subgraph_density(largest_subgraph)
 
         logger.info(
-            f"🏆 Largest dense subgraph: {len(largest_subgraph)} nodes, density={largest_density:.4f}"
+            f"Largest dense subgraph has {len(largest_subgraph)} nodes at "
+            f"density {largest_density:.4f}"
         )
 
         return largest_subgraph, largest_density

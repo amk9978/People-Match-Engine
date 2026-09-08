@@ -201,7 +201,7 @@ class AnalysisService:
 
             # Force fresh data load - critical for updated jobs with new files
             graph_builder.load_data()
-            logger.info(f"📊 Loaded {len(graph_builder.df)} rows from {csv_path}")
+            logger.info(f"Loaded {len(graph_builder.df)} rows from {csv_path}")
 
             await self._update_job_and_notify(
                 job_id,
