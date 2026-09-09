@@ -258,3 +258,17 @@ class TestModelCacheLocation:
             FastEmbeddingService(cache_dir=str(target))
 
         assert target.is_dir()
+
+    def test_a_model_path_skips_the_download_entirely(self, tmp_path):
+        with (
+            patch(
+                "match_engine.services.preprocessing.fast_embedding_service.EmbeddingCache"
+            ),
+            patch(
+                "match_engine.services.preprocessing.fast_embedding_service.TextEmbedding"
+            ) as model,
+        ):
+            FastEmbeddingService(model_path=str(tmp_path))
+
+        assert model.call_args.kwargs["specific_model_path"] == str(tmp_path)
+        assert "cache_dir" not in model.call_args.kwargs

@@ -50,6 +50,7 @@ DATA_DIR = get_envs("DATA_DIR", cast=str, default="./data")
 EMBEDDING_MODEL = get_envs(
     "EMBEDDING_MODEL", cast=str, default="BAAI/bge-small-en-v1.5"
 )
+EMBEDDING_MODEL_PATH = get_envs("EMBEDDING_MODEL_PATH", cast=str, default="")
 EMBEDDING_CACHE_DIR = get_envs(
     "EMBEDDING_CACHE_DIR",
     cast=str,

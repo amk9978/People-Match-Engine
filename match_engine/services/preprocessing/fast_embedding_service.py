@@ -20,16 +20,31 @@ logger = logging.getLogger(__name__)
 class FastEmbeddingService(EmbeddingServiceProtocol):
     """Shared service for FastEmbed embedding retrieval with Redis caching"""
 
-    def __init__(self, model_name: str = None, cache_dir: str = None):
+    def __init__(
+        self, model_name: str = None, cache_dir: str = None, model_path: str = None
+    ):
         """fastembed caches to a temporary directory by default, so the model
         is refetched after every reboot. The download is 66MB and slow enough
-        that a first run looks like a hang, so it goes somewhere durable."""
+        that a first run looks like a hang, so it goes somewhere durable.
+
+        A model_path points at a directory already holding the files, which
+        skips the fetch entirely. That is the way out when fastembed cannot
+        reach HuggingFace but a browser can."""
         self.model_name = model_name or settings.EMBEDDING_MODEL
         self.cache_dir = cache_dir or settings.EMBEDDING_CACHE_DIR
-        Path(self.cache_dir).mkdir(parents=True, exist_ok=True)
+        self.model_path = model_path or settings.EMBEDDING_MODEL_PATH
 
-        logger.info(f"Loading embedding model {self.model_name}")
-        self.model = TextEmbedding(model_name=self.model_name, cache_dir=self.cache_dir)
+        if self.model_path:
+            logger.info(f"Loading embedding model from {self.model_path}")
+            self.model = TextEmbedding(
+                model_name=self.model_name, specific_model_path=self.model_path
+            )
+        else:
+            Path(self.cache_dir).mkdir(parents=True, exist_ok=True)
+            logger.info(f"Loading embedding model {self.model_name}")
+            self.model = TextEmbedding(
+                model_name=self.model_name, cache_dir=self.cache_dir
+            )
         self.cache = EmbeddingCache(get_cache_backend())
         self.batch_delay = settings.EMBEDDING_BATCH_DELAY
         self.embedding_dim = 384
