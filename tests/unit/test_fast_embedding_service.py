@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import numpy as np
 import pytest
 
+from match_engine import settings
 from match_engine.services.preprocessing.fast_embedding_service import (
     FastEmbeddingService,
 )
@@ -223,3 +224,37 @@ class TestFastEmbeddingService:
             assert service.model == mock_text_embedding_model
             assert service.batch_delay == 2.5
             assert service.embedding_dim == 384
+
+
+class TestModelCacheLocation:
+    """fastembed defaults to a temporary directory, which /tmp cleanup wipes."""
+
+    def test_the_cache_directory_is_durable_by_default(self):
+        assert not settings.EMBEDDING_CACHE_DIR.startswith("/tmp")
+
+    def test_the_service_passes_the_cache_directory_to_fastembed(self, tmp_path):
+        with (
+            patch(
+                "match_engine.services.preprocessing.fast_embedding_service.EmbeddingCache"
+            ),
+            patch(
+                "match_engine.services.preprocessing.fast_embedding_service.TextEmbedding"
+            ) as model,
+        ):
+            FastEmbeddingService(cache_dir=str(tmp_path / "models"))
+
+        assert model.call_args.kwargs["cache_dir"] == str(tmp_path / "models")
+
+    def test_the_cache_directory_is_created(self, tmp_path):
+        target = tmp_path / "made" / "on" / "demand"
+        with (
+            patch(
+                "match_engine.services.preprocessing.fast_embedding_service.EmbeddingCache"
+            ),
+            patch(
+                "match_engine.services.preprocessing.fast_embedding_service.TextEmbedding"
+            ),
+        ):
+            FastEmbeddingService(cache_dir=str(target))
+
+        assert target.is_dir()

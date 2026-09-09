@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 from typing import Any
 
 import sentry_sdk
@@ -46,6 +47,14 @@ FALLBACK_VALUE = get_envs("FALLBACK_VALUE", cast=float, default=0.5)
 COMPLEMENTARITY_SCORER = get_envs("COMPLEMENTARITY_SCORER", cast=str, default="auto")
 
 DATA_DIR = get_envs("DATA_DIR", cast=str, default="./data")
+EMBEDDING_MODEL = get_envs(
+    "EMBEDDING_MODEL", cast=str, default="BAAI/bge-small-en-v1.5"
+)
+EMBEDDING_CACHE_DIR = get_envs(
+    "EMBEDDING_CACHE_DIR",
+    cast=str,
+    default=str(Path.home() / ".cache" / "fastembed"),
+)
 
 
 SENTRY_DSN = get_envs("SENTRY_DSN", cast=str, default="")
